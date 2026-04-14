@@ -10,9 +10,13 @@ function Profile() {
   const { user, updateProfile, logout } = useAuth()
   const navigate = useNavigate()
   const [savedMessage, setSavedMessage] = useState('')
+  const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setError('')
+    setSavedMessage('')
 
     const profile: UserProfile = {
       name: getFormValue(event, 'name'),
@@ -21,8 +25,15 @@ function Profile() {
       location: getFormValue(event, 'location'),
     }
 
-    updateProfile(profile)
-    setSavedMessage('Profile updated locally.')
+    setIsSubmitting(true)
+    try {
+      await updateProfile(profile)
+      setSavedMessage('Profile updated.')
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Profile update failed.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   function handleDeleteLocalProfile() {
@@ -106,11 +117,18 @@ function Profile() {
 
             <button
               type="submit"
-              className="cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] sm:col-span-2"
+              disabled={isSubmitting}
+              className="cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa] sm:col-span-2"
             >
-              Save profile
+              {isSubmitting ? 'Saving profile...' : 'Save profile'}
             </button>
           </form>
+
+          {error && (
+            <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#be123c] ring-1 ring-[#fecdd3]">
+              {error}
+            </p>
+          )}
 
           {savedMessage && (
             <p className="mt-4 rounded-md bg-[#f0fdf4] px-4 py-3 text-sm font-bold text-[#166534] ring-1 ring-[#bbf7d0]">

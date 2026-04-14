@@ -139,7 +139,7 @@ function Dashboard() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-sm font-bold text-[#4b5d50]">
-                      {formatDate(record.createdAt)} · {record.fileName}
+                      {formatDate(record.createdAt)} - {record.fileName}
                     </p>
                     <h2 className="mt-1 text-2xl font-black text-[#16351f]">
                       {record.predictions[0].crop} - {record.predictions[0].disease}
@@ -158,7 +158,10 @@ function Dashboard() {
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   {record.predictions.map((prediction) => (
-                    <div key={prediction.modelName} className="rounded-lg bg-[#f0fdf4] p-4 ring-1 ring-[#bbf7d0]">
+                    <div
+                      key={prediction.modelName}
+                      className="rounded-lg bg-[#f0fdf4] p-4 ring-1 ring-[#bbf7d0]"
+                    >
                       <p className="text-sm font-black text-[#15803d]">
                         {prediction.modelName}
                       </p>
@@ -174,7 +177,10 @@ function Dashboard() {
                 </p>
 
                 <div className="mt-4">
-                  <label htmlFor={`notes-${record.id}`} className="text-sm font-black text-[#16351f]">
+                  <label
+                    htmlFor={`notes-${record.id}`}
+                    className="text-sm font-black text-[#16351f]"
+                  >
                     Field note
                   </label>
                   <textarea

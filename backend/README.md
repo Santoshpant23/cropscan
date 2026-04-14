@@ -1,23 +1,61 @@
 # CropScan Backend
 
-FastAPI backend for authentication and profile management.
+FastAPI backend for authentication, profile management, and crop disease prediction.
+
+## Runtime
+
+Use Python 3.11 for the backend. PyTorch and torchvision are the version-sensitive dependencies, so everyone should use the same Python version.
 
 ## Setup
 
-1. Create a virtual environment:
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   ```
-2. Install dependencies:
-   ```powershell
-   pip install -r requirements.txt
-   ```
-3. Create `.env` from `.env.example` and set your MongoDB URL and JWT secret.
-4. Run the API:
-   ```powershell
-   uvicorn app.main:app --reload
-   ```
+Windows:
+
+```powershell
+cd backend
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+Copy-Item .env.example .env
+uvicorn app.main:app --reload
+```
+
+Mac/Linux:
+
+```bash
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --reload
+```
+
+Then edit `.env` with your MongoDB URL and JWT secret.
+
+## Required Model Files
+
+The prediction endpoint expects these files:
+
+```text
+backend/models/efficientnet_b0_cropscan.pth
+backend/models/mobilenetv2_cropscan.pth
+```
+
+`MODEL_DIR=models` in `.env` points to that folder.
+
+## Environment Variables
+
+```env
+MONGODB_URL=mongodb+srv://<username>:<password>@cluster.mongodb.net/cropscan
+MONGODB_DB_NAME=cropscan
+JWT_SECRET_KEY=replace-with-a-long-random-secret
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+MODEL_DIR=models
+```
 
 ## Endpoints
 
@@ -26,53 +64,50 @@ FastAPI backend for authentication and profile management.
 - `GET /api/v1/auth/me`
 - `PATCH /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
+- `POST /api/v1/upload`
+- `POST /upload`
 - `GET /health`
 
-## Postman
+Use `Authorization: Bearer <token>` for protected routes, including upload.
 
-Use `Authorization: Bearer <token>` for protected routes.
+## Example Payloads
 
-### Signup
-
-`POST /api/v1/auth/signup`
+Signup:
 
 ```json
 {
-  "full_name": "Diara User",
-  "email": "diara@example.com",
+  "full_name": "CropScan User",
+  "email": "farmer@example.com",
+  "password": "StrongPass123",
+  "role": "Smallholder farmer",
+  "location": "Knox County, TN"
+}
+```
+
+Login:
+
+```json
+{
+  "email": "farmer@example.com",
   "password": "StrongPass123"
 }
 ```
 
-### Login
-
-`POST /api/v1/auth/login`
+Update profile:
 
 ```json
 {
-  "email": "diara@example.com",
-  "password": "StrongPass123"
+  "full_name": "Updated User",
+  "email": "updated@example.com",
+  "role": "Extension agent",
+  "location": "Knox County, TN"
 }
 ```
 
-### Update profile
+Upload:
 
-`PATCH /api/v1/auth/me`
-
-```json
-{
-  "full_name": "Diara Updated",
-  "email": "new@example.com"
-}
-```
-
-### Change password
-
-`POST /api/v1/auth/change-password`
-
-```json
-{
-  "current_password": "StrongPass123",
-  "new_password": "EvenStronger456"
-}
+```text
+POST /api/v1/upload
+Content-Type: multipart/form-data
+file=<leaf image>
 ```

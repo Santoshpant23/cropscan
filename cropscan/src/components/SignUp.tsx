@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react'
+import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { getFormValue } from '../lib/forms'
@@ -7,18 +8,34 @@ import type { UserProfile } from '../types'
 function SignUp() {
   const { isAuthenticated, signup } = useAuth()
   const navigate = useNavigate()
+  const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    // Replace with FastAPI signup and store the returned JWT when auth is ready.
+    setError('')
+    const password = getFormValue(event, 'password')
+    const confirmPassword = getFormValue(event, 'confirm')
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
+
     const profile: UserProfile = {
       name: getFormValue(event, 'name'),
       email: getFormValue(event, 'email'),
       role: getFormValue(event, 'role'),
       location: getFormValue(event, 'location') || 'Knox County, TN',
     }
-    signup(profile)
-    navigate('/scan', { replace: true })
+    setIsSubmitting(true)
+    try {
+      await signup(profile, password)
+      navigate('/scan', { replace: true })
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Signup failed.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (isAuthenticated) return <Navigate to="/scan" replace />
@@ -131,11 +148,18 @@ function SignUp() {
 
           <button
             type="submit"
-            className="cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] sm:col-span-2"
+            disabled={isSubmitting}
+            className="cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa] sm:col-span-2"
           >
-            Create account
+            {isSubmitting ? 'Creating account...' : 'Create account'}
           </button>
         </form>
+
+        {error && (
+          <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#be123c] ring-1 ring-[#fecdd3]">
+            {error}
+          </p>
+        )}
 
         <p className="mt-6 text-center text-sm text-[#4b5d50]">
           Already have an account?{' '}

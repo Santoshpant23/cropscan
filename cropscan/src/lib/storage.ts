@@ -4,20 +4,6 @@ export const AUTH_TOKEN_KEY = 'cropscan_jwt'
 export const AUTH_USER_KEY = 'cropscan_user'
 export const ANALYSES_KEY = 'cropscan_analyses'
 
-export function createMockJwt(email: string) {
-  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
-  const payload = btoa(
-    JSON.stringify({
-      sub: email,
-      name: 'CropScan frontend token',
-      iat: Math.floor(Date.now() / 1000),
-    }),
-  )
-
-  // Frontend-only placeholder. Replace with the FastAPI-issued JWT later.
-  return `${header}.${payload}.mock-signature`
-}
-
 export function readStoredUser() {
   const rawUser = localStorage.getItem(AUTH_USER_KEY)
   if (!rawUser) return null

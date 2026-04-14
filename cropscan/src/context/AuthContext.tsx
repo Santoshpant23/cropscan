@@ -3,10 +3,14 @@ import { useState } from 'react'
 import {
   AUTH_TOKEN_KEY,
   AUTH_USER_KEY,
-  createMockJwt,
   migrateUserAnalysesEmail,
   readStoredUser,
 } from '../lib/storage'
+import {
+  loginRequest,
+  signupRequest,
+  updateProfileRequest,
+} from '../lib/api'
 import type { UserProfile } from '../types'
 import { AuthContext } from './authState'
 
@@ -14,30 +18,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY))
   const [user, setUser] = useState<UserProfile | null>(() => readStoredUser())
 
-  function persistSession(nextUser: UserProfile) {
-    const nextToken = createMockJwt(nextUser.email)
+  function persistSession(nextUser: UserProfile, nextToken: string) {
     localStorage.setItem(AUTH_TOKEN_KEY, nextToken)
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(nextUser))
     setToken(nextToken)
     setUser(nextUser)
   }
 
-  function login(email: string) {
-    const storedUser = readStoredUser()
-    persistSession(
-      storedUser?.email === email
-        ? storedUser
-        : {
-            name: 'CropScan User',
-            email,
-            role: 'Smallholder farmer',
-            location: 'Knox County, TN',
-          },
-    )
+  async function login(email: string, password: string) {
+    const session = await loginRequest(email, password)
+    persistSession(session.user, session.token)
   }
 
-  function signup(profile: UserProfile) {
-    persistSession(profile)
+  async function signup(profile: UserProfile, password: string) {
+    const session = await signupRequest(profile, password)
+    persistSession(session.user, session.token)
   }
 
   function logout() {
@@ -46,15 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
-  function updateProfile(profile: UserProfile) {
-    if (user?.email && user.email !== profile.email) {
-      migrateUserAnalysesEmail(user.email, profile.email)
+  async function updateProfile(profile: UserProfile) {
+    if (!token) return
+    const updatedProfile = await updateProfileRequest(profile, token)
+    if (user?.email && user.email !== updatedProfile.email) {
+      migrateUserAnalysesEmail(user.email, updatedProfile.email)
     }
-    const nextToken = createMockJwt(profile.email)
-    localStorage.setItem(AUTH_TOKEN_KEY, nextToken)
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(profile))
-    setToken(nextToken)
-    setUser(profile)
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedProfile))
+    setUser(updatedProfile)
   }
 
   const value = {

@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react'
+import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { getFormValue } from '../lib/forms'
@@ -8,12 +9,21 @@ function Login() {
   const location = useLocation()
   const navigate = useNavigate()
   const nextPath = typeof location.state?.from === 'string' ? location.state.from : '/scan'
+  const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    // Replace with FastAPI login and store the returned JWT when auth is ready.
-    login(getFormValue(event, 'email'))
-    navigate(nextPath, { replace: true })
+    setError('')
+    setIsSubmitting(true)
+    try {
+      await login(getFormValue(event, 'email'), getFormValue(event, 'password'))
+      navigate(nextPath, { replace: true })
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Login failed.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (isAuthenticated) return <Navigate to="/scan" replace />
@@ -66,11 +76,18 @@ function Login() {
 
           <button
             type="submit"
-            className="w-full cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c]"
+            disabled={isSubmitting}
+            className="w-full cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa]"
           >
-            Login
+            {isSubmitting ? 'Logging in...' : 'Login'}
           </button>
         </form>
+
+        {error && (
+          <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#be123c] ring-1 ring-[#fecdd3]">
+            {error}
+          </p>
+        )}
 
         <p className="mt-6 text-center text-sm text-[#4b5d50]">
           New to CropScan?{' '}

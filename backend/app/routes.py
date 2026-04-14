@@ -34,6 +34,8 @@ def signup(
     user_document = {
         "full_name": payload.full_name.strip(),
         "email": payload.email.lower(),
+        "role": payload.role.strip(),
+        "location": payload.location.strip(),
         "password_hash": hash_password(payload.password),
         "created_at": now,
         "updated_at": now,

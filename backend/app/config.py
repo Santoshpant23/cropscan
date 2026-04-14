@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(
         60, alias="ACCESS_TOKEN_EXPIRE_MINUTES"
     )
+    cors_origins: str = Field(
+        "http://localhost:5173,http://127.0.0.1:5173", alias="CORS_ORIGINS"
+    )
+    model_dir: str = Field("models", alias="MODEL_DIR")
     skip_db_init: bool = Field(False, alias="SKIP_DB_INIT")
 
     model_config = SettingsConfigDict(

@@ -2,51 +2,9 @@ import type { ChangeEvent } from 'react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
+import { uploadLeafRequest } from '../lib/api'
 import { saveAnalysis } from '../lib/storage'
-import type { AnalysisRecord, ModelPrediction } from '../types'
-
-type MockCase = {
-  crop: string
-  disease: string
-  efficientNetConfidence: number
-  mobileNetConfidence: number
-  recommendation: string
-}
-
-const mockCases: MockCase[] = [
-  {
-    crop: 'Tomato',
-    disease: 'Late Blight',
-    efficientNetConfidence: 94,
-    mobileNetConfidence: 91,
-    recommendation:
-      'Remove heavily infected leaves, avoid overhead watering, and separate affected plants when possible. Confirm with a local extension office before applying treatment.',
-  },
-  {
-    crop: 'Potato',
-    disease: 'Early Blight',
-    efficientNetConfidence: 88,
-    mobileNetConfidence: 84,
-    recommendation:
-      'Prune infected foliage, improve airflow, and avoid splashing soil onto leaves. A labeled fungicide may be appropriate if symptoms keep spreading.',
-  },
-  {
-    crop: 'Grape',
-    disease: 'Black Rot',
-    efficientNetConfidence: 81,
-    mobileNetConfidence: 76,
-    recommendation:
-      'Remove diseased leaves and old fruit mummies from the vine area. Keep vines open for airflow and ask an extension agent about local spray timing.',
-  },
-  {
-    crop: 'Pepper',
-    disease: 'Bacterial Spot',
-    efficientNetConfidence: 69,
-    mobileNetConfidence: 64,
-    recommendation:
-      'The models are below the confidence threshold. Retake the photo in bright light with one main leaf, then confirm with expert review before treatment.',
-  },
-]
+import type { AnalysisRecord, UploadResponse } from '../types'
 
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -57,51 +15,46 @@ function fileToDataUrl(file: File) {
   })
 }
 
-function buildAnalysisRecord(
+function buildAnalysisRecordFromResponse(
+  response: UploadResponse,
   fileName: string,
   imageDataUrl: string,
   userEmail: string,
 ): AnalysisRecord {
-  const selectedCase = mockCases[fileName.length % mockCases.length]
-  const predictions: ModelPrediction[] = [
-    {
-      modelName: 'EfficientNet-B0',
-      crop: selectedCase.crop,
-      disease: selectedCase.disease,
-      confidence: selectedCase.efficientNetConfidence,
-    },
-    {
-      modelName: 'MobileNetV2',
-      crop: selectedCase.crop,
-      disease: selectedCase.disease,
-      confidence: selectedCase.mobileNetConfidence,
-    },
-  ]
-  const status =
-    predictions.every((prediction) => prediction.confidence >= 70) &&
-    predictions.every((prediction) => prediction.disease === predictions[0].disease)
-      ? 'High confidence'
-      : 'Review needed'
-
   return {
     id: crypto.randomUUID(),
     userEmail,
     createdAt: new Date().toISOString(),
     fileName,
     imageDataUrl,
-    status,
-    recommendation: selectedCase.recommendation,
+    status: response.status,
+    recommendation: response.recommendation,
     notes: '',
-    predictions,
+    predictions: response.predictions.map((prediction) => ({
+      modelName: prediction.modelName,
+      crop: prediction.crop,
+      disease: prediction.disease,
+      className: prediction.className,
+      confidence: Math.round(prediction.confidencePercent),
+      topK: prediction.topK.map((topPrediction) => ({
+        className: topPrediction.className,
+        crop: topPrediction.crop,
+        disease: topPrediction.disease,
+        confidence: Math.round(topPrediction.confidencePercent),
+      })),
+    })),
   }
 }
 
 function ScanPage() {
-  const { user } = useAuth()
+  const { token, user } = useAuth()
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState('')
   const [fileName, setFileName] = useState('')
   const [latestRecord, setLatestRecord] = useState<AnalysisRecord | null>(null)
   const [isReadingFile, setIsReadingFile] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [error, setError] = useState('')
 
   async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -109,18 +62,37 @@ function ScanPage() {
 
     setIsReadingFile(true)
     setLatestRecord(null)
+    setError('')
+    setSelectedFile(file)
     setFileName(file.name)
     setImageDataUrl(await fileToDataUrl(file))
     setIsReadingFile(false)
   }
 
-  function handleAnalyze() {
-    if (!imageDataUrl || !fileName || !user) return
+  async function handleAnalyze() {
+    if (!selectedFile || !imageDataUrl || !fileName || !token || !user) return
 
-    // Replace this mock record with a FastAPI image upload when the backend is ready.
-    const record = buildAnalysisRecord(fileName, imageDataUrl, user.email)
-    saveAnalysis(record)
-    setLatestRecord(record)
+    setIsAnalyzing(true)
+    setError('')
+    try {
+      const response = await uploadLeafRequest(selectedFile, token)
+      const record = buildAnalysisRecordFromResponse(
+        response,
+        fileName,
+        imageDataUrl,
+        user.email,
+      )
+      saveAnalysis(record)
+      setLatestRecord(record)
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Could not analyze this image.',
+      )
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
   return (
@@ -177,11 +149,17 @@ function ScanPage() {
           <button
             type="button"
             onClick={handleAnalyze}
-            disabled={!imageDataUrl || isReadingFile}
+            disabled={!imageDataUrl || isReadingFile || isAnalyzing}
             className="mt-5 w-full cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa]"
           >
-            Run both models
+            {isAnalyzing ? 'Analyzing leaf...' : 'Run both models'}
           </button>
+
+          {error && (
+            <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#be123c] ring-1 ring-[#fecdd3]">
+              {error}
+            </p>
+          )}
         </div>
 
         <div className="rounded-lg bg-[#16351f] p-5 text-white shadow-sm sm:p-6">
@@ -238,6 +216,19 @@ function ScanPage() {
                     <p className="mt-2 text-sm font-bold text-[#4b5d50]">
                       {prediction.crop} - {prediction.disease}
                     </p>
+                    {prediction.topK && (
+                      <div className="mt-4 space-y-2 border-t border-[#14532d]/10 pt-3">
+                        {prediction.topK.slice(0, 3).map((topPrediction) => (
+                          <p
+                            key={`${prediction.modelName}-${topPrediction.className}`}
+                            className="flex justify-between gap-3 text-xs font-bold text-[#4b5d50]"
+                          >
+                            <span>{topPrediction.disease}</span>
+                            <span>{topPrediction.confidence}%</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
