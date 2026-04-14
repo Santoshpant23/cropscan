@@ -82,7 +82,7 @@ def _build_mobilenet_v2() -> nn.Module:
 def _load_state_dict(model: nn.Module, path: Path, device: torch.device) -> nn.Module:
     if not path.exists():
         raise FileNotFoundError(f"Model file not found: {path}")
-    state_dict = torch.load(path, map_location=device)
+    state_dict = torch.load(path, map_location=device, weights_only=True)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
