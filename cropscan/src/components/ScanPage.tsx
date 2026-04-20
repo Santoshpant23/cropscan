@@ -1,5 +1,5 @@
 import type { ChangeEvent } from 'react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { uploadLeafRequest } from '../lib/api'
@@ -48,6 +48,7 @@ function buildAnalysisRecordFromResponse(
 
 function ScanPage() {
   const { token, user } = useAuth()
+  const isAnalyzeRequestInFlight = useRef(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState('')
   const [fileName, setFileName] = useState('')
@@ -70,8 +71,18 @@ function ScanPage() {
   }
 
   async function handleAnalyze() {
-    if (!selectedFile || !imageDataUrl || !fileName || !token || !user) return
+    if (
+      !selectedFile ||
+      !imageDataUrl ||
+      !fileName ||
+      !token ||
+      !user ||
+      isAnalyzeRequestInFlight.current
+    ) {
+      return
+    }
 
+    isAnalyzeRequestInFlight.current = true
     setIsAnalyzing(true)
     setError('')
     try {
@@ -91,6 +102,7 @@ function ScanPage() {
           : 'Could not analyze this image.',
       )
     } finally {
+      isAnalyzeRequestInFlight.current = false
       setIsAnalyzing(false)
     }
   }
