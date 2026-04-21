@@ -2,6 +2,8 @@
 
 FastAPI backend for authentication, profile management, and crop disease prediction.
 
+For full project setup, see the root `README.md`.
+
 ## Runtime
 
 Use Python 3.11 for the backend. PyTorch and torchvision are the version-sensitive dependencies, so everyone should use the same Python version.
@@ -33,6 +35,8 @@ uvicorn app.main:app --reload
 ```
 
 Then edit `.env` with your MongoDB URL and JWT secret.
+
+All commands in this file assume you are running them from inside the `backend` directory.
 
 ## Required Model Files
 
@@ -69,6 +73,15 @@ MODEL_DIR=models
 - `GET /health`
 
 Use `Authorization: Bearer <token>` for protected routes, including upload.
+
+`POST /upload` is kept as a compatibility route. The main frontend uses `POST /api/v1/upload`.
+
+## Verification
+
+```powershell
+python -m pytest tests
+python -m compileall app
+```
 
 ## Example Payloads
 
