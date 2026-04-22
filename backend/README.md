@@ -49,6 +49,10 @@ backend/models/mobilenetv2_cropscan.pth
 
 `MODEL_DIR=models` in `.env` points to that folder.
 
+The backend also uses a pretrained ImageNet MobileNetV2 model as an input gate to
+reject non-leaf uploads before disease prediction. On the first run, torchvision may
+download those pretrained weights if they are not already cached on the machine.
+
 ## Environment Variables
 
 ```env
