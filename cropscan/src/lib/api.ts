@@ -69,6 +69,13 @@ export async function signupRequest(profile: UserProfile, password: string) {
   return { token: tokenResponse.access_token, user }
 }
 
+export async function forgotPasswordRequest(email: string, newPassword: string) {
+  return requestJson<{ message: string }>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, new_password: newPassword }),
+  })
+}
+
 export async function getProfileRequest(token: string) {
   const user = await requestJson<AuthUserResponse>('/auth/me', {
     method: 'GET',

@@ -3,6 +3,7 @@ import './App.css'
 import { AuthProvider } from './context/AuthContext'
 import Dashboard from './components/Dashboard'
 import Footer from './components/Footer'
+import ForgotPassword from './components/ForgotPassword'
 import HomePage from './components/HomePage'
 import Login from './components/Login'
 import NavBar from './components/NavBar'
@@ -21,6 +22,7 @@ function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/signup" element={<SignUp />} />
               <Route
                 path="/scan"
