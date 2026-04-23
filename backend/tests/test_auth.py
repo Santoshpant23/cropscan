@@ -187,3 +187,18 @@ def test_forgot_password_resets_password_for_existing_user() -> None:
         json={"email": "reset@example.com", "password": "UpdatedPass456"},
     )
     assert new_login_response.status_code == 200
+
+
+def test_signup_validation_errors_are_returned_as_readable_message() -> None:
+    client, _fake_collection = build_client()
+
+    response = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "full_name": "A",
+            "email": "not-an-email",
+            "password": "short",
+        },
+    )
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], str)
