@@ -61,6 +61,13 @@ async def diagnosis_chat(
     payload: DiagnosisChatRequest,
     _current_user: dict = Depends(get_current_user),
 ) -> DiagnosisChatResponse:
+    prior_user_messages = sum(1 for message in payload.messages if message.role == "user")
+    if prior_user_messages >= 10:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="This scan has reached the 10-question chat limit.",
+        )
+
     answer = generate_chat_reply(
         analysis=payload.analysis.model_dump(by_alias=True),
         messages=[message.model_dump() for message in payload.messages],
