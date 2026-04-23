@@ -11,6 +11,14 @@ import type {
   UploadResponse,
 } from '../types'
 
+const MAX_CHAT_QUESTIONS = 10
+const QUICK_CHAT_PROMPTS = [
+  'What should I do first this week?',
+  'How serious is this diagnosis?',
+  'What product categories should I consider?',
+  'What should I monitor over the next few days?',
+]
+
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -104,6 +112,11 @@ function ScanPage() {
   const [isSendingChat, setIsSendingChat] = useState(false)
   const [chatError, setChatError] = useState('')
   const [error, setError] = useState('')
+  const usedQuestionCount = chatMessages.filter(
+    (message) => message.role === 'user',
+  ).length
+  const remainingQuestionCount = MAX_CHAT_QUESTIONS - usedQuestionCount
+  const hasReachedChatLimit = remainingQuestionCount <= 0
 
   async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -169,12 +182,19 @@ function ScanPage() {
 
   async function handleSendChat() {
     const message = chatInput.trim()
-    if (!message || !latestRecord || !token || isSendingChat) {
+    if (
+      !message ||
+      !latestRecord ||
+      !token ||
+      isSendingChat ||
+      hasReachedChatLimit
+    ) {
       return
     }
 
     const userMessage: DiagnosisChatMessage = { role: 'user', content: message }
-    const messageHistory = [...chatMessages, userMessage]
+    const priorMessages = [...chatMessages]
+    const messageHistory = [...priorMessages, userMessage]
     setChatMessages(messageHistory)
     setChatInput('')
     setChatError('')
@@ -182,7 +202,7 @@ function ScanPage() {
 
     try {
       const response = await diagnosisChatRequest(
-        buildChatRequest(latestRecord, messageHistory, message),
+        buildChatRequest(latestRecord, priorMessages, message),
         token,
       )
       setChatMessages((currentMessages) => [
@@ -423,7 +443,7 @@ function ScanPage() {
               </div>
 
               <div className="rounded-lg border border-white/15 bg-white/8 p-5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="font-black text-[#bef264]">Ask CropScan</h3>
                     <p className="mt-2 text-sm leading-6 text-[#d1fae5]">
@@ -431,28 +451,68 @@ function ScanPage() {
                       steps for this diagnosis.
                     </p>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-[#ecfdf5] ring-1 ring-white/10">
+                      {usedQuestionCount}/{MAX_CHAT_QUESTIONS} used
+                    </span>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                        hasReachedChatLimit
+                          ? 'bg-[#fecaca] text-[#7f1d1d]'
+                          : 'bg-[#dcfce7] text-[#166534]'
+                      }`}
+                    >
+                      {hasReachedChatLimit
+                        ? 'Limit reached'
+                        : `${remainingQuestionCount} left`}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="mt-5 space-y-3">
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {QUICK_CHAT_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => setChatInput(prompt)}
+                      disabled={!latestRecord || hasReachedChatLimit || isSendingChat}
+                      className="cursor-pointer rounded-full bg-white/8 px-3 py-2 text-xs font-bold text-[#ecfdf5] ring-1 ring-white/10 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:bg-white/5 disabled:text-[#9db4a3]"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-5 max-h-[420px] space-y-3 overflow-y-auto rounded-lg border border-white/10 bg-[#0f2717] p-3 sm:p-4">
                   {chatMessages.length ? (
                     chatMessages.map((message, index) => (
                       <div
                         key={`${message.role}-${index}`}
-                        className={`rounded-lg px-4 py-3 text-sm leading-6 ${
+                        className={`flex ${
                           message.role === 'assistant'
-                            ? 'bg-white text-[#16351f]'
-                            : 'bg-[#14532d] text-white'
+                            ? 'justify-start'
+                            : 'justify-end'
                         }`}
                       >
-                        <p className="mb-1 text-xs font-black uppercase tracking-wide text-[#15803d]">
-                          {message.role === 'assistant' ? 'CropScan AI' : 'You'}
-                        </p>
-                        <p>{message.content}</p>
+                        <div
+                          className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[80%] ${
+                          message.role === 'assistant'
+                            ? 'border border-[#14532d]/10 bg-white text-[#16351f]'
+                            : 'bg-[#14532d] text-white ring-1 ring-[#1f6b3b]'
+                        }`}
+                        >
+                          <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-[#15803d]">
+                            {message.role === 'assistant' ? 'CropScan AI' : 'You'}
+                          </p>
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        </div>
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-[#d1fae5]">
-                      Run a scan first, then ask follow-up questions here.
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-4 text-sm text-[#d1fae5]">
+                      Run a scan first, then ask follow-up questions here. The chat
+                      keeps this scan's history in each follow-up request, up to 10
+                      questions.
                     </div>
                   )}
                 </div>
@@ -462,25 +522,41 @@ function ScanPage() {
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     rows={3}
+                    maxLength={1500}
                     placeholder="Ask about treatment timing, likely spread, or useful product categories."
-                    className="w-full rounded-lg border border-white/10 bg-white px-4 py-3 text-sm text-[#16351f] outline-none ring-0 placeholder:text-[#6b7a6e] focus:border-[#bef264]"
+                    disabled={!latestRecord || hasReachedChatLimit}
+                    className="w-full rounded-lg border border-white/10 bg-white px-4 py-3 text-sm text-[#16351f] outline-none ring-0 placeholder:text-[#6b7a6e] focus:border-[#bef264] disabled:cursor-not-allowed disabled:bg-[#d7dfda]"
                   />
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     {chatError ? (
                       <p className="text-sm font-bold text-[#fecdd3]">{chatError}</p>
+                    ) : hasReachedChatLimit ? (
+                      <p className="text-sm font-bold text-[#fed7aa]">
+                        You have reached the 10-question limit for this scan.
+                      </p>
                     ) : (
                       <p className="text-xs font-bold uppercase tracking-wide text-[#d1fae5]">
-                        Stateless diagnosis chat tied to this latest scan
+                        Chat history is sent with each follow-up for this latest scan
                       </p>
                     )}
-                    <button
-                      type="button"
-                      onClick={handleSendChat}
-                      disabled={!latestRecord || !chatInput.trim() || isSendingChat}
-                      className="w-full cursor-pointer rounded-md bg-[#bef264] px-4 py-3 text-sm font-black text-[#16351f] transition hover:bg-[#a3e635] sm:w-auto disabled:cursor-not-allowed disabled:bg-[#b2c0b6]"
-                    >
-                      {isSendingChat ? 'Sending...' : 'Send question'}
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-[#d1fae5]">
+                        {chatInput.length}/1500
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSendChat}
+                        disabled={
+                          !latestRecord ||
+                          !chatInput.trim() ||
+                          isSendingChat ||
+                          hasReachedChatLimit
+                        }
+                        className="w-full cursor-pointer rounded-md bg-[#bef264] px-4 py-3 text-sm font-black text-[#16351f] transition hover:bg-[#a3e635] sm:w-auto disabled:cursor-not-allowed disabled:bg-[#b2c0b6]"
+                      >
+                        {isSendingChat ? 'Sending...' : 'Send question'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
