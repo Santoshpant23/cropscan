@@ -2,7 +2,9 @@ import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
+from app.ai_service import generate_chat_reply
 from app.dependencies import get_current_user
+from app.models import DiagnosisChatRequest, DiagnosisChatResponse
 
 router = APIRouter(tags=["prediction"])
 logger = logging.getLogger(__name__)
@@ -52,3 +54,16 @@ async def upload_leaf_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Backend inference failed. Check backend logs for the root cause.",
         ) from exc
+
+
+@router.post("/chat", response_model=DiagnosisChatResponse)
+async def diagnosis_chat(
+    payload: DiagnosisChatRequest,
+    _current_user: dict = Depends(get_current_user),
+) -> DiagnosisChatResponse:
+    answer = generate_chat_reply(
+        analysis=payload.analysis.model_dump(by_alias=True),
+        messages=[message.model_dump() for message in payload.messages],
+        message=payload.message,
+    )
+    return DiagnosisChatResponse(answer=answer)

@@ -10,6 +10,8 @@ The application includes:
 - account creation and login
 - protected image upload
 - dual-model prediction results
+- AI-generated treatment recommendations
+- diagnosis follow-up chat
 - saved scan history
 - basic profile management
 
@@ -75,6 +77,8 @@ JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 MODEL_DIR=models
+GEMINI_API_KEY=replace-with-your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 What each one does:
@@ -86,6 +90,8 @@ What each one does:
 - `ACCESS_TOKEN_EXPIRE_MINUTES`: token expiry window
 - `CORS_ORIGINS`: frontend origins allowed to call the backend
 - `MODEL_DIR`: folder containing the saved `.pth` model files
+- `GEMINI_API_KEY`: key used for AI-generated recommendations and diagnosis chat
+- `GEMINI_MODEL`: Gemini model name used by the backend
 
 ### Frontend Environment Variables
 
@@ -194,7 +200,8 @@ Once both servers are running:
 4. Go to the scan page.
 5. Upload a leaf image.
 6. Review the prediction result from both models.
-7. Check the dashboard to see saved scan history.
+7. Review the AI-generated recommendation and ask follow-up questions in the diagnosis chat.
+8. Check the dashboard to see saved scan history.
 
 ## API Summary
 
@@ -206,6 +213,7 @@ Main backend routes:
 - `PATCH /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
 - `POST /api/v1/upload`
+- `POST /api/v1/chat`
 - `POST /upload`
 - `GET /health`
 
@@ -217,6 +225,7 @@ The upload endpoint is protected. You must be logged in and send the bearer toke
 - Scan history is currently stored in browser local storage on the frontend.
 - Authentication and user profile data are backed by MongoDB through the FastAPI API.
 - The backend loads the saved PyTorch models directly from `backend/models`.
+- AI recommendations and diagnosis chat use Gemini through the backend when `GEMINI_API_KEY` is set. The backend falls back to deterministic guidance if the Gemini call fails.
 
 ## Quick Verification Commands
 

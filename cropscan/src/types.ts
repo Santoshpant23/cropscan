@@ -19,14 +19,28 @@ export type ModelPrediction = {
   }>
 }
 
+export type RecommendationDetails = {
+  headline: string
+  urgency: 'low' | 'medium' | 'high'
+  overview: string
+  immediateSteps: string[]
+  productCategories: string[]
+  cautions: string[]
+  followUp: string
+}
+
 export type AnalysisRecord = {
   id: string
   userEmail: string
   createdAt: string
   fileName: string
   imageDataUrl: string
+  cropType?: string
+  condition?: string
+  confidencePercent?: number
   status: 'High confidence' | 'Review needed'
   recommendation: string
+  recommendationDetails?: RecommendationDetails
   notes: string
   predictions: ModelPrediction[]
 }
@@ -47,6 +61,7 @@ export type UploadResponse = {
   confidencePercent: number
   status: 'High confidence' | 'Review needed'
   recommendation: string
+  recommendationDetails: RecommendationDetails
   predictions: Array<{
     modelName: 'EfficientNet-B0' | 'MobileNetV2'
     crop: string
@@ -62,4 +77,33 @@ export type UploadResponse = {
       confidencePercent: number
     }>
   }>
+}
+
+export type DiagnosisChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type DiagnosisChatRequest = {
+  analysis: {
+    cropType: string
+    condition: string
+    confidencePercent: number
+    status: 'High confidence' | 'Review needed'
+    recommendation: string
+    recommendationDetails: RecommendationDetails
+    predictions: Array<{
+      modelName: 'EfficientNet-B0' | 'MobileNetV2'
+      crop: string
+      disease: string
+      className?: string
+      confidencePercent: number
+    }>
+  }
+  messages: DiagnosisChatMessage[]
+  message: string
+}
+
+export type DiagnosisChatResponse = {
+  answer: string
 }

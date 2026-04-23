@@ -7,6 +7,7 @@ import torch
 from torch import nn
 from torchvision import models, transforms
 
+from app.ai_service import generate_recommendation
 from app.config import get_settings
 
 CLASS_NAMES = [
@@ -411,6 +412,15 @@ def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
     status = "High confidence" if same_top_class and all_confident else "Review needed"
 
     best_prediction = max(predictions, key=lambda prediction: prediction["confidence"])
+    fallback_recommendation = _recommendation_for(predictions, status)
+    recommendation, recommendation_details = generate_recommendation(
+        crop=best_prediction["crop"],
+        disease=best_prediction["disease"],
+        status=status,
+        confidence_percent=best_prediction["confidencePercent"],
+        predictions=predictions,
+        fallback_recommendation=fallback_recommendation,
+    )
     return {
         "fileName": filename,
         "imageSize": {"width": image.width, "height": image.height},
@@ -420,6 +430,7 @@ def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
         "confidenceScore": best_prediction["confidence"],
         "confidencePercent": best_prediction["confidencePercent"],
         "status": status,
-        "recommendation": _recommendation_for(predictions, status),
+        "recommendation": recommendation,
+        "recommendationDetails": recommendation_details,
         "predictions": predictions,
     }

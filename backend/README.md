@@ -34,7 +34,7 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Then edit `.env` with your MongoDB URL and JWT secret.
+Then edit `.env` with your MongoDB URL, JWT secret, and Gemini API key.
 
 All commands in this file assume you are running them from inside the `backend` directory.
 
@@ -63,6 +63,8 @@ JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 MODEL_DIR=models
+GEMINI_API_KEY=replace-with-your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 ## Endpoints
@@ -73,6 +75,7 @@ MODEL_DIR=models
 - `PATCH /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
 - `POST /api/v1/upload`
+- `POST /api/v1/chat`
 - `POST /upload`
 - `GET /health`
 
@@ -127,4 +130,38 @@ Upload:
 POST /api/v1/upload
 Content-Type: multipart/form-data
 file=<leaf image>
+```
+
+Diagnosis chat:
+
+```json
+{
+  "analysis": {
+    "cropType": "Apple",
+    "condition": "Black Rot",
+    "confidencePercent": 99.4,
+    "status": "High confidence",
+    "recommendation": "Short recommendation text...",
+    "recommendationDetails": {
+      "headline": "Apple Black Rot Detected",
+      "urgency": "high",
+      "overview": "Short summary...",
+      "immediateSteps": ["Step 1", "Step 2"],
+      "productCategories": ["Labeled fungicide"],
+      "cautions": ["Use only labeled products"],
+      "followUp": "Monitor over the next week."
+    },
+    "predictions": [
+      {
+        "modelName": "EfficientNet-B0",
+        "crop": "Apple",
+        "disease": "Black Rot",
+        "className": "Apple___Black_rot",
+        "confidencePercent": 99.9
+      }
+    ]
+  },
+  "messages": [],
+  "message": "What should I do first?"
+}
 ```
