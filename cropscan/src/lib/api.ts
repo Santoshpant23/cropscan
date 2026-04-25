@@ -1,4 +1,10 @@
-import type { AuthUserResponse, UploadResponse, UserProfile } from '../types'
+import type {
+  AuthUserResponse,
+  DiagnosisChatRequest,
+  DiagnosisChatResponse,
+  UploadResponse,
+  UserProfile,
+} from '../types'
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'
@@ -103,4 +109,15 @@ export async function uploadLeafRequest(file: File, token: string) {
     body: formData,
   })
   return parseResponse<UploadResponse>(response)
+}
+
+export async function diagnosisChatRequest(
+  payload: DiagnosisChatRequest,
+  token: string,
+) {
+  return requestJson<DiagnosisChatResponse>('/chat', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  })
 }

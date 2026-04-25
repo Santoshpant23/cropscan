@@ -132,6 +132,8 @@ function Dashboard() {
               <img
                 src={record.imageDataUrl}
                 alt={`${record.predictions[0].crop} leaf`}
+                loading="lazy"
+                decoding="async"
                 className="h-56 w-full rounded-md object-cover lg:h-full"
               />
 

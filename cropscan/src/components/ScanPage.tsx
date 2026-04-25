@@ -1,10 +1,25 @@
 import type { ChangeEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
-import { uploadLeafRequest } from '../lib/api'
+import { diagnosisChatRequest, uploadLeafRequest } from '../lib/api'
 import { saveAnalysis } from '../lib/storage'
-import type { AnalysisRecord, UploadResponse } from '../types'
+import type {
+  AnalysisRecord,
+  DiagnosisChatMessage,
+  DiagnosisChatRequest,
+  UploadResponse,
+} from '../types'
+
+const MAX_CHAT_QUESTIONS = 10
+const QUICK_CHAT_PROMPTS = [
+  'What should I do first this week?',
+  'How serious is this diagnosis?',
+  'What product categories should I consider?',
+  'What should I monitor over the next few days?',
+]
+
+type CaptureMode = 'upload' | 'camera'
 
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -27,8 +42,12 @@ function buildAnalysisRecordFromResponse(
     createdAt: new Date().toISOString(),
     fileName,
     imageDataUrl,
+    cropType: response.cropType,
+    condition: response.condition,
+    confidencePercent: response.confidencePercent,
     status: response.status,
     recommendation: response.recommendation,
+    recommendationDetails: response.recommendationDetails,
     notes: '',
     predictions: response.predictions.map((prediction) => ({
       modelName: prediction.modelName,
@@ -46,32 +65,212 @@ function buildAnalysisRecordFromResponse(
   }
 }
 
+function buildChatRequest(
+  record: AnalysisRecord,
+  messages: DiagnosisChatMessage[],
+  message: string,
+): DiagnosisChatRequest {
+  return {
+    analysis: {
+      cropType: record.cropType || record.predictions[0]?.crop || 'Unknown crop',
+      condition: record.condition || record.predictions[0]?.disease || 'Unknown condition',
+      confidencePercent:
+        record.confidencePercent || record.predictions[0]?.confidence || 0,
+      status: record.status,
+      recommendation: record.recommendation,
+      recommendationDetails: record.recommendationDetails || {
+        headline: 'Diagnosis guidance',
+        urgency: 'medium',
+        overview: record.recommendation,
+        immediateSteps: [],
+        productCategories: [],
+        cautions: [],
+        followUp: 'Monitor the plant and confirm with a local expert if needed.',
+      },
+      predictions: record.predictions.map((prediction) => ({
+        modelName: prediction.modelName,
+        crop: prediction.crop,
+        disease: prediction.disease,
+        className: prediction.className,
+        confidencePercent: prediction.confidence,
+      })),
+    },
+    messages,
+    message,
+  }
+}
+
 function ScanPage() {
   const { token, user } = useAuth()
+  const isAnalyzeRequestInFlight = useRef(false)
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState('')
   const [fileName, setFileName] = useState('')
   const [latestRecord, setLatestRecord] = useState<AnalysisRecord | null>(null)
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('upload')
   const [isReadingFile, setIsReadingFile] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isStartingCamera, setIsStartingCamera] = useState(false)
+  const [isCameraActive, setIsCameraActive] = useState(false)
+  const [chatMessages, setChatMessages] = useState<DiagnosisChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [isSendingChat, setIsSendingChat] = useState(false)
+  const [chatError, setChatError] = useState('')
+  const [cameraError, setCameraError] = useState('')
   const [error, setError] = useState('')
+  const usedQuestionCount = chatMessages.filter(
+    (message) => message.role === 'user',
+  ).length
+  const remainingQuestionCount = MAX_CHAT_QUESTIONS - usedQuestionCount
+  const hasReachedChatLimit = remainingQuestionCount <= 0
+  const isCameraSupported =
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices &&
+    !!navigator.mediaDevices.getUserMedia
 
-  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
+  useEffect(() => {
+    return () => {
+      stopCameraStream()
+    }
+  }, [])
 
+  function stopCameraStream() {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop())
+      cameraStreamRef.current = null
+    }
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = null
+    }
+    setIsCameraActive(false)
+  }
+
+  async function setSelectedImage(file: File) {
     setIsReadingFile(true)
     setLatestRecord(null)
     setError('')
+    setCameraError('')
+    setChatMessages([])
+    setChatInput('')
+    setChatError('')
     setSelectedFile(file)
     setFileName(file.name)
     setImageDataUrl(await fileToDataUrl(file))
     setIsReadingFile(false)
   }
 
-  async function handleAnalyze() {
-    if (!selectedFile || !imageDataUrl || !fileName || !token || !user) return
+  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
 
+    stopCameraStream()
+    await setSelectedImage(file)
+  }
+
+  async function handleStartCamera() {
+    if (!isCameraSupported || isStartingCamera) {
+      return
+    }
+
+    setCaptureMode('camera')
+    setCameraError('')
+    setError('')
+    setIsStartingCamera(true)
+
+    try {
+      stopCameraStream()
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+        },
+        audio: false,
+      })
+      cameraStreamRef.current = stream
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream
+        await cameraVideoRef.current.play()
+      }
+      setIsCameraActive(true)
+    } catch (caughtError) {
+      setCameraError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Camera access was blocked.',
+      )
+      stopCameraStream()
+    } finally {
+      setIsStartingCamera(false)
+    }
+  }
+
+  async function handleCapturePhoto() {
+    if (!cameraVideoRef.current) {
+      return
+    }
+
+    const video = cameraVideoRef.current
+    const width = video.videoWidth
+    const height = video.videoHeight
+    if (!width || !height) {
+      setCameraError('The camera is not ready yet. Try again in a moment.')
+      return
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) {
+      setCameraError('Could not capture a frame from the camera.')
+      return
+    }
+
+    context.drawImage(video, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.92),
+    )
+    if (!blob) {
+      setCameraError('Could not turn the captured image into a file.')
+      return
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const capturedFile = new File([blob], `cropscan-capture-${timestamp}.jpg`, {
+      type: 'image/jpeg',
+    })
+
+    stopCameraStream()
+    await setSelectedImage(capturedFile)
+  }
+
+  function handleRetakeCameraPhoto() {
+    setSelectedFile(null)
+    setFileName('')
+    setImageDataUrl('')
+    setLatestRecord(null)
+    setError('')
+    setCameraError('')
+    setChatMessages([])
+    setChatInput('')
+    setChatError('')
+    void handleStartCamera()
+  }
+
+  async function handleAnalyze() {
+    if (
+      !selectedFile ||
+      !imageDataUrl ||
+      !fileName ||
+      !token ||
+      !user ||
+      isAnalyzeRequestInFlight.current
+    ) {
+      return
+    }
+
+    isAnalyzeRequestInFlight.current = true
     setIsAnalyzing(true)
     setError('')
     try {
@@ -84,6 +283,15 @@ function ScanPage() {
       )
       saveAnalysis(record)
       setLatestRecord(record)
+      setChatMessages([
+        {
+          role: 'assistant',
+          content:
+            'I have the diagnosis context for this scan. Ask about treatment timing, spread risk, or useful product categories.',
+        },
+      ])
+      setChatInput('')
+      setChatError('')
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -91,7 +299,48 @@ function ScanPage() {
           : 'Could not analyze this image.',
       )
     } finally {
+      isAnalyzeRequestInFlight.current = false
       setIsAnalyzing(false)
+    }
+  }
+
+  async function handleSendChat() {
+    const message = chatInput.trim()
+    if (
+      !message ||
+      !latestRecord ||
+      !token ||
+      isSendingChat ||
+      hasReachedChatLimit
+    ) {
+      return
+    }
+
+    const userMessage: DiagnosisChatMessage = { role: 'user', content: message }
+    const priorMessages = [...chatMessages]
+    const messageHistory = [...priorMessages, userMessage]
+    setChatMessages(messageHistory)
+    setChatInput('')
+    setChatError('')
+    setIsSendingChat(true)
+
+    try {
+      const response = await diagnosisChatRequest(
+        buildChatRequest(latestRecord, priorMessages, message),
+        token,
+      )
+      setChatMessages((currentMessages) => [
+        ...currentMessages,
+        { role: 'assistant', content: response.answer },
+      ])
+    } catch (caughtError) {
+      setChatError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Could not reach the diagnosis assistant.',
+      )
+    } finally {
+      setIsSendingChat(false)
     }
   }
 
@@ -108,37 +357,135 @@ function ScanPage() {
             analysis to your dashboard.
           </p>
 
-          <label
-            htmlFor="leaf-photo"
-            className="mt-6 flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#22c55e]/40 bg-[#f0fdf4] p-4 text-center transition hover:border-[#15803d] hover:bg-[#dcfce7]"
-          >
-            {imageDataUrl ? (
-              <img
-                src={imageDataUrl}
-                alt="Selected leaf preview"
-                className="h-72 w-full rounded-md object-cover"
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCaptureMode('upload')
+                setCameraError('')
+                stopCameraStream()
+              }}
+              className={`cursor-pointer rounded-md px-4 py-3 text-sm font-black transition ${
+                captureMode === 'upload'
+                  ? 'bg-[#16351f] text-white'
+                  : 'bg-[#f0fdf4] text-[#16351f] ring-1 ring-[#14532d]/10 hover:bg-[#dcfce7]'
+              }`}
+            >
+              Upload image
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleStartCamera()
+              }}
+              disabled={!isCameraSupported || isStartingCamera}
+              className={`cursor-pointer rounded-md px-4 py-3 text-sm font-black transition ${
+                captureMode === 'camera'
+                  ? 'bg-[#16351f] text-white'
+                  : 'bg-[#f0fdf4] text-[#16351f] ring-1 ring-[#14532d]/10 hover:bg-[#dcfce7]'
+              } disabled:cursor-not-allowed disabled:bg-[#d7dfda] disabled:text-[#708074]`}
+            >
+              {isStartingCamera ? 'Opening camera...' : 'Use camera'}
+            </button>
+          </div>
+
+          {captureMode === 'upload' ? (
+            <label
+              htmlFor="leaf-photo"
+              className="mt-6 flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#22c55e]/40 bg-[#f0fdf4] p-4 text-center transition hover:border-[#15803d] hover:bg-[#dcfce7]"
+            >
+              {imageDataUrl ? (
+                <img
+                  src={imageDataUrl}
+                  alt="Selected leaf preview"
+                  className="h-72 w-full rounded-md object-cover sm:h-80"
+                />
+              ) : (
+                <span className="max-w-xs">
+                  <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md bg-[#16351f] text-xl font-black text-[#bef264]">
+                    +
+                  </span>
+                  <span className="block text-base font-black text-[#16351f]">
+                    Choose leaf image
+                  </span>
+                  <span className="mt-2 block text-sm text-[#4b5d50]">
+                    PNG, JPG, or a camera photo from your device
+                  </span>
+                </span>
+              )}
+              <input
+                id="leaf-photo"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={handleImageChange}
               />
-            ) : (
-              <span className="max-w-xs">
-                <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md bg-[#16351f] text-xl font-black text-[#bef264]">
-                  +
-                </span>
-                <span className="block text-base font-black text-[#16351f]">
-                  Choose leaf image
-                </span>
-                <span className="mt-2 block text-sm text-[#4b5d50]">
-                  PNG, JPG, or camera photo
-                </span>
-              </span>
-            )}
-            <input
-              id="leaf-photo"
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleImageChange}
-            />
-          </label>
+            </label>
+          ) : (
+            <div className="mt-6 rounded-lg border border-[#14532d]/10 bg-[#f0fdf4] p-4">
+              {imageDataUrl && !isCameraActive ? (
+                <img
+                  src={imageDataUrl}
+                  alt="Captured leaf preview"
+                  className="h-72 w-full rounded-md object-cover sm:h-80"
+                />
+              ) : (
+                <div className="overflow-hidden rounded-md bg-[#d7dfda]">
+                  <video
+                    ref={cameraVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="h-72 w-full object-cover sm:h-80"
+                  />
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                {isCameraActive ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleCapturePhoto}
+                      className="w-full cursor-pointer rounded-md bg-[#16351f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#14532d] sm:w-auto"
+                    >
+                      Capture photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopCameraStream}
+                      className="w-full cursor-pointer rounded-md bg-white px-4 py-3 text-sm font-black text-[#16351f] ring-1 ring-[#14532d]/10 transition hover:bg-[#f8faf8] sm:w-auto"
+                    >
+                      Close camera
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleStartCamera()
+                      }}
+                      disabled={isStartingCamera || !isCameraSupported}
+                      className="w-full cursor-pointer rounded-md bg-[#16351f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#14532d] sm:w-auto disabled:cursor-not-allowed disabled:bg-[#708074]"
+                    >
+                      {isStartingCamera ? 'Opening camera...' : 'Open camera'}
+                    </button>
+                    {imageDataUrl ? (
+                      <button
+                        type="button"
+                        onClick={handleRetakeCameraPhoto}
+                        className="w-full cursor-pointer rounded-md bg-white px-4 py-3 text-sm font-black text-[#16351f] ring-1 ring-[#14532d]/10 transition hover:bg-[#f8faf8] sm:w-auto"
+                      >
+                        Retake photo
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {fileName && (
             <p className="mt-3 truncate text-sm font-bold text-[#4b5d50]">
@@ -146,14 +493,24 @@ function ScanPage() {
             </p>
           )}
 
+          <p className="mt-3 text-sm leading-6 text-[#4b5d50]">
+            Best results come from one leaf, bright lighting, and a simple background.
+          </p>
+
           <button
             type="button"
             onClick={handleAnalyze}
             disabled={!imageDataUrl || isReadingFile || isAnalyzing}
             className="mt-5 w-full cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa]"
           >
-            {isAnalyzing ? 'Analyzing leaf...' : 'Run both models'}
+              {isAnalyzing ? 'Analyzing leaf...' : 'Run both models'}
           </button>
+
+          {cameraError && (
+            <p className="mt-4 rounded-md bg-[#eff6ff] px-4 py-3 text-sm font-bold text-[#1d4ed8] ring-1 ring-[#bfdbfe]">
+              {cameraError}
+            </p>
+          )}
 
           {error && (
             <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#be123c] ring-1 ring-[#fecdd3]">
@@ -197,7 +554,9 @@ function ScanPage() {
               >
                 <p className="text-sm font-black uppercase">{latestRecord.status}</p>
                 <p className="mt-1 text-2xl font-black">
-                  {latestRecord.predictions[0].crop} - {latestRecord.predictions[0].disease}
+                  {(latestRecord.cropType || latestRecord.predictions[0].crop) +
+                    ' - ' +
+                    (latestRecord.condition || latestRecord.predictions[0].disease)}
                 </p>
               </div>
 
@@ -234,10 +593,204 @@ function ScanPage() {
               </div>
 
               <div className="rounded-lg border border-white/15 bg-white/8 p-5">
-                <h3 className="font-black text-[#bef264]">Recommendation</h3>
-                <p className="mt-2 text-sm leading-6 text-[#ecfdf5]">
-                  {latestRecord.recommendation}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="font-black text-[#bef264]">
+                      {latestRecord.recommendationDetails?.headline || 'Recommendation'}
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-[#ecfdf5]">
+                      {latestRecord.recommendationDetails?.overview ||
+                        latestRecord.recommendation}
+                    </p>
+                  </div>
+                  <span
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-black uppercase ${
+                      latestRecord.recommendationDetails?.urgency === 'high'
+                        ? 'bg-[#fecaca] text-[#7f1d1d]'
+                        : latestRecord.recommendationDetails?.urgency === 'low'
+                          ? 'bg-[#dcfce7] text-[#166534]'
+                          : 'bg-[#fed7aa] text-[#9a3412]'
+                    }`}
+                  >
+                    {latestRecord.recommendationDetails?.urgency || 'medium'} urgency
+                  </span>
+                </div>
+
+                {latestRecord.recommendationDetails?.immediateSteps?.length ? (
+                  <div className="mt-5">
+                    <h4 className="text-xs font-black uppercase tracking-wide text-[#bef264]">
+                      Immediate steps
+                    </h4>
+                    <ul className="mt-3 space-y-2 text-sm text-[#ecfdf5]">
+                      {latestRecord.recommendationDetails.immediateSteps.map((step) => (
+                        <li key={step} className="flex gap-3">
+                          <span className="mt-1 h-2 w-2 rounded-full bg-[#bef264]" />
+                          <span>{step}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {latestRecord.recommendationDetails?.productCategories?.length ? (
+                  <div className="mt-5">
+                    <h4 className="text-xs font-black uppercase tracking-wide text-[#bef264]">
+                      Product categories to consider
+                    </h4>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {latestRecord.recommendationDetails.productCategories.map(
+                        (category) => (
+                          <span
+                            key={category}
+                            className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-[#ecfdf5] ring-1 ring-white/10"
+                          >
+                            {category}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {latestRecord.recommendationDetails?.cautions?.length ? (
+                  <div className="mt-5">
+                    <h4 className="text-xs font-black uppercase tracking-wide text-[#bef264]">
+                      Cautions
+                    </h4>
+                    <ul className="mt-3 space-y-2 text-sm text-[#ecfdf5]">
+                      {latestRecord.recommendationDetails.cautions.map((caution) => (
+                        <li key={caution} className="flex gap-3">
+                          <span className="mt-1 h-2 w-2 rounded-full bg-[#f97316]" />
+                          <span>{caution}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                <p className="mt-5 text-sm font-bold text-[#d1fae5]">
+                  {latestRecord.recommendationDetails?.followUp ||
+                    latestRecord.recommendation}
                 </p>
+              </div>
+
+              <div className="rounded-lg border border-white/15 bg-white/8 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="font-black text-[#bef264]">Ask CropScan</h3>
+                    <p className="mt-2 text-sm leading-6 text-[#d1fae5]">
+                      Follow up on treatment, product categories, spread risk, or next
+                      steps for this diagnosis.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-[#ecfdf5] ring-1 ring-white/10">
+                      {usedQuestionCount}/{MAX_CHAT_QUESTIONS} used
+                    </span>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                        hasReachedChatLimit
+                          ? 'bg-[#fecaca] text-[#7f1d1d]'
+                          : 'bg-[#dcfce7] text-[#166534]'
+                      }`}
+                    >
+                      {hasReachedChatLimit
+                        ? 'Limit reached'
+                        : `${remainingQuestionCount} left`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {QUICK_CHAT_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => setChatInput(prompt)}
+                      disabled={!latestRecord || hasReachedChatLimit || isSendingChat}
+                      className="cursor-pointer rounded-full bg-white/8 px-3 py-2 text-xs font-bold text-[#ecfdf5] ring-1 ring-white/10 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:bg-white/5 disabled:text-[#9db4a3]"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-5 max-h-[420px] space-y-3 overflow-y-auto rounded-lg border border-white/10 bg-[#0f2717] p-3 sm:p-4">
+                  {chatMessages.length ? (
+                    chatMessages.map((message, index) => (
+                      <div
+                        key={`${message.role}-${index}`}
+                        className={`flex ${
+                          message.role === 'assistant'
+                            ? 'justify-start'
+                            : 'justify-end'
+                        }`}
+                      >
+                        <div
+                          className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[80%] ${
+                          message.role === 'assistant'
+                            ? 'border border-[#14532d]/10 bg-white text-[#16351f]'
+                            : 'bg-[#14532d] text-white ring-1 ring-[#1f6b3b]'
+                        }`}
+                        >
+                          <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-[#15803d]">
+                            {message.role === 'assistant' ? 'CropScan AI' : 'You'}
+                          </p>
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-4 text-sm text-[#d1fae5]">
+                      Run a scan first, then ask follow-up questions here. The chat
+                      keeps this scan's history in each follow-up request, up to 10
+                      questions.
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <textarea
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    rows={3}
+                    maxLength={1500}
+                    placeholder="Ask about treatment timing, likely spread, or useful product categories."
+                    disabled={!latestRecord || hasReachedChatLimit}
+                    className="w-full rounded-lg border border-white/10 bg-white px-4 py-3 text-sm text-[#16351f] outline-none ring-0 placeholder:text-[#6b7a6e] focus:border-[#bef264] disabled:cursor-not-allowed disabled:bg-[#d7dfda]"
+                  />
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    {chatError ? (
+                      <p className="text-sm font-bold text-[#fecdd3]">{chatError}</p>
+                    ) : hasReachedChatLimit ? (
+                      <p className="text-sm font-bold text-[#fed7aa]">
+                        You have reached the 10-question limit for this scan.
+                      </p>
+                    ) : (
+                      <p className="text-xs font-bold uppercase tracking-wide text-[#d1fae5]">
+                        Chat history is sent with each follow-up for this latest scan
+                      </p>
+                    )}
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-[#d1fae5]">
+                        {chatInput.length}/1500
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSendChat}
+                        disabled={
+                          !latestRecord ||
+                          !chatInput.trim() ||
+                          isSendingChat ||
+                          hasReachedChatLimit
+                        }
+                        className="w-full cursor-pointer rounded-md bg-[#bef264] px-4 py-3 text-sm font-black text-[#16351f] transition hover:bg-[#a3e635] sm:w-auto disabled:cursor-not-allowed disabled:bg-[#b2c0b6]"
+                      >
+                        {isSendingChat ? 'Sending...' : 'Send question'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
