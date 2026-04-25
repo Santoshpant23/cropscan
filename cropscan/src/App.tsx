@@ -8,6 +8,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 
 const HomePage = lazy(() => import('./components/HomePage'))
 const Login = lazy(() => import('./components/Login'))
+const ForgotPassword = lazy(() => import('./components/ForgotPassword'))
 const SignUp = lazy(() => import('./components/SignUp'))
 const ScanPage = lazy(() => import('./components/ScanPage'))
 const Dashboard = lazy(() => import('./components/Dashboard'))
@@ -60,6 +61,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/signup" element={<SignUp />} />
                 <Route
                   path="/scan"

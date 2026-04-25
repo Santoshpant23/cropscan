@@ -1,4 +1,5 @@
 .env
 .venv
+dipsha
 __pycache__/
 .pytest_cache/
