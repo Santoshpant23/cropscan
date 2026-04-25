@@ -32,6 +32,7 @@ Install these tools first:
 - Python 3.11
 - Node.js 18+ and npm
 - Access to a MongoDB database
+- Docker Desktop or Docker Engine if you want the one-command container setup
 
 Why Python 3.11 matters:
 
@@ -108,6 +109,39 @@ VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
 ```
 
 Use the default value if the backend is running locally on port `8000`.
+
+## Docker Quick Start
+
+If you want the simplest team setup, use Docker. The containers are pinned to the
+same backend Python line you are using locally: Python `3.11.9`.
+
+### 1. Create the backend env file
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+Then edit `backend/.env` with your real MongoDB, JWT, and Gemini values.
+
+### 2. Start the full app
+
+From the project root:
+
+```powershell
+docker compose up --build
+```
+
+That starts:
+
+- frontend at `http://localhost:5173`
+- backend at `http://localhost:8000`
+- backend docs at `http://localhost:8000/docs`
+
+### 3. Stop the app
+
+```powershell
+docker compose down
+```
 
 ## Step-by-Step Setup
 
@@ -246,6 +280,13 @@ python -m pytest tests
 python -m compileall app
 ```
 
+### Docker
+
+```powershell
+docker compose build
+docker compose up
+```
+
 ## Common Problems
 
 ### 1. `py -3.11` is not found
@@ -276,6 +317,15 @@ Check:
 - `MONGODB_URL` is correct
 - `JWT_SECRET_KEY` is set
 - backend server restarted after `.env` changes
+
+### 5. Docker build fails or containers cannot start
+
+Check:
+
+- Docker Desktop is running
+- `backend/.env` exists and has real values
+- the model files still exist in `backend/models`
+- ports `5173` and `8000` are not already in use
 
 ## Team Workflow Suggestion
 

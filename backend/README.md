@@ -4,6 +4,8 @@ FastAPI backend for authentication, profile management, and crop disease predict
 
 For full project setup, see the root `README.md`.
 
+The backend also has a Docker run path through the root `docker-compose.yml`.
+
 ## Runtime
 
 Use Python 3.11 for the backend. PyTorch and torchvision are the version-sensitive dependencies, so everyone should use the same Python version.
@@ -37,6 +39,18 @@ uvicorn app.main:app --reload
 Then edit `.env` with your MongoDB URL, JWT secret, and Gemini API key.
 
 All commands in this file assume you are running them from inside the `backend` directory.
+
+## Docker
+
+The Docker image uses Python `3.11.9`, matching the working local backend venv.
+
+From the project root:
+
+```powershell
+docker compose up --build
+```
+
+The compose setup reads environment variables from `backend/.env`.
 
 ## Required Model Files
 
