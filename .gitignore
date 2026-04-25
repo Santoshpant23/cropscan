@@ -1,0 +1,19 @@
+# Claude Code context file — keep local only
+CLAUDE.md
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+
+# Node
+node_modules/
+dist/
+*.local
+
+# Model weights (large binary files)
+*.pth
