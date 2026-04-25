@@ -73,12 +73,12 @@ function Login() {
               placeholder="Enter your password"
             />
             <div className="mt-2 text-right">
-              <Link
-                to="/forgot-password"
-                className="text-sm font-black text-[#15803d] hover:text-[#16351f]"
+              <span
+                aria-disabled="true"
+                className="text-sm font-black text-[#8aa194]"
               >
-                Forgot your password?
-              </Link>
+                Password reset coming soon
+              </span>
             </div>
           </div>
 
