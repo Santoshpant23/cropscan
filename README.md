@@ -1,207 +1,345 @@
-# Crop Scan
+# CropScan
 
-> Instant AI-powered crop disease detection from a single photo.
+CropScan is a web application for crop disease diagnosis from a leaf image. A user signs in, uploads a photo, and receives predictions from two trained image classification models:
 
-Crop Scan is a web application built for smallholder farmers, backyard gardeners, and agricultural staff who need fast, reliable plant disease diagnosis without access to an agronomist. Upload a photo of a leaf and get an instant prediction, confidence score, and plain-language treatment recommendation.
+- EfficientNet-B0
+- MobileNetV2
 
-**Team Cultivate** — Aisha Noor, Dipsha Budhathoki, Santosh Pant, Nima Sherpa
+The application includes:
 
----
+- account creation and login
+- protected image upload
+- dual-model prediction results
+- AI-generated treatment recommendations
+- diagnosis follow-up chat
+- saved scan history
+- basic profile management
 
-## Features
+The frontend is built with React and Vite. The backend is built with FastAPI, MongoDB, JWT authentication, and PyTorch.
 
-- Leaf image upload with instant disease classification
-- Dual-model ensemble (EfficientNet-B0 + MobileNetV2) for higher reliability
-- Confidence threshold: results flagged as "Review needed" when below 70%
-- Plain-language treatment recommendations for 15 crop/disease classes
-- JWT-based user authentication (signup, login, profile management)
-- Protected scan and dashboard routes
+## Repository Structure
 
-## Supported Crops & Conditions
-
-| Crop | Conditions |
-|------|-----------|
-| Pepper (Bell) | Bacterial Spot, Healthy |
-| Potato | Early Blight, Late Blight, Healthy |
-| Tomato | Bacterial Spot, Early Blight, Late Blight, Leaf Mold, Septoria Leaf Spot, Spider Mites, Target Spot, Yellow Leaf Curl Virus, Mosaic Virus, Healthy |
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 19, TypeScript, Tailwind CSS v4, Vite, React Router v7 |
-| Backend | FastAPI (Python), MongoDB (PyMongo), JWT (PyJWT + Argon2) |
-| ML | PyTorch, torchvision — EfficientNet-B0 & MobileNetV2 trained on PlantVillage |
-| Hosting | Vercel (frontend), Render (backend) |
-
----
-
-## Project Structure
-
-```
-cropscan/
-├── backend/              # FastAPI application
-│   ├── app/
-│   │   ├── config.py     # Pydantic settings (reads .env)
-│   │   ├── database.py   # MongoDB connection & indexes
-│   │   ├── dependencies.py # JWT auth dependency
-│   │   ├── inference.py  # Model loading & prediction logic
-│   │   ├── main.py       # FastAPI app factory
-│   │   ├── models.py     # Pydantic request/response schemas
-│   │   ├── routes.py     # Auth routes (/auth/*)
-│   │   ├── security.py   # Password hashing & token creation
-│   │   └── upload_routes.py # Prediction endpoint (/upload)
-│   ├── models/           # Trained .pth model weights (git-ignored)
-│   ├── tests/            # Pytest test suite
-│   ├── requirements.txt
-│   └── .env.example
-├── cropscan/             # React frontend
-│   ├── src/
-│   │   ├── components/   # Page & UI components
-│   │   ├── context/      # AuthContext + auth state
-│   │   ├── lib/          # API client, form helpers, storage
-│   │   └── types.ts      # Shared TypeScript types
-│   ├── package.json
-│   └── .env.example
-└── notebooks/            # Training notebooks (cropscan.ipynb)
+```text
+backend/    FastAPI API, authentication, model loading, prediction logic
+cropscan/   React frontend
+notebooks/  training and experimentation notebooks
 ```
 
----
+## What You Need Before Running
 
-## Local Development
+Install these tools first:
 
-### Prerequisites
+- Python 3.11
+- Node.js 18+ and npm
+- Access to a MongoDB database
+- Docker Desktop or Docker Engine if you want the one-command container setup
 
-- Python 3.12+
-- Node.js 20+
-- MongoDB Atlas cluster (or local MongoDB)
+Why Python 3.11 matters:
 
-### Backend
+The backend depends on PyTorch and torchvision. Those packages are more predictable when the whole team uses the same Python version. Use Python 3.11 for the backend setup.
+
+## Required Files Already in This Repo
+
+The backend prediction flow expects these model files:
+
+```text
+backend/models/efficientnet_b0_cropscan.pth
+backend/models/mobilenetv2_cropscan.pth
+```
+
+If those files are missing, the upload endpoint will fail when it tries to load the models.
+
+## Environment Variables
+
+Use local `.env` files, not global system environment variables.
+
+That means:
+
+- create `backend/.env`
+- create `cropscan/.env`
+
+Do not commit those real `.env` files. The repo already includes `.env.example` templates for both apps.
+
+### Backend Environment Variables
+
+Copy:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+Then edit `backend/.env`:
+
+```env
+MONGODB_URL=mongodb+srv://<username>:<password>@cluster.mongodb.net/cropscan
+MONGODB_DB_NAME=cropscan
+JWT_SECRET_KEY=replace-with-a-long-random-secret
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+MODEL_DIR=models
+GEMINI_API_KEY=replace-with-your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+What each one does:
+
+- `MONGODB_URL`: MongoDB connection string
+- `MONGODB_DB_NAME`: database name
+- `JWT_SECRET_KEY`: secret used to sign login tokens
+- `JWT_ALGORITHM`: JWT algorithm, currently `HS256`
+- `ACCESS_TOKEN_EXPIRE_MINUTES`: token expiry window
+- `CORS_ORIGINS`: frontend origins allowed to call the backend
+- `MODEL_DIR`: folder containing the saved `.pth` model files
+- `GEMINI_API_KEY`: key used for AI-generated recommendations and diagnosis chat
+- `GEMINI_MODEL`: Gemini model name used by the backend
+
+### Frontend Environment Variables
+
+Copy:
+
+```powershell
+Copy-Item cropscan\.env.example cropscan\.env
+```
+
+Then edit `cropscan/.env` if needed:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
+```
+
+Use the default value if the backend is running locally on port `8000`.
+
+## Docker Quick Start
+
+If you want the simplest team setup, use Docker. The containers are pinned to the
+same backend Python line you are using locally: Python `3.11.9`.
+
+### 1. Create the backend env file
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+Then edit `backend/.env` with your real MongoDB, JWT, and Gemini values.
+
+### 2. Start the full app
+
+From the project root:
+
+```powershell
+docker compose up --build
+```
+
+That starts:
+
+- frontend at `http://localhost:5173`
+- backend at `http://localhost:8000`
+- backend docs at `http://localhost:8000/docs`
+
+### 3. Stop the app
+
+```powershell
+docker compose down
+```
+
+## Step-by-Step Setup
+
+### 1. Clone the Repository
+
+```bash
+git clone <your-repo-url>
+cd <repo-folder>
+```
+
+### 2. Set Up the Backend
+
+Open a terminal in the project root, then run:
+
+### Windows PowerShell
+
+```powershell
+cd backend
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Then edit `backend/.env` with your real values.
+
+Start the backend:
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+Backend URLs:
+
+- API base: `http://127.0.0.1:8000`
+- Docs: `http://127.0.0.1:8000/docs`
+- Health check: `http://127.0.0.1:8000/health`
+
+### Mac/Linux
 
 ```bash
 cd backend
-
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# Install dependencies
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-
-# Configure environment
 cp .env.example .env
-# Edit .env with your MongoDB URL and JWT secret
-
-# Start the server
-uvicorn app.main:app --reload
-# API available at http://127.0.0.1:8000
-# Docs at http://127.0.0.1:8000/docs
 ```
 
-### Frontend
+Then edit `backend/.env` and run:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### 3. Set Up the Frontend
+
+Open a second terminal in the project root, then run:
+
+### Windows PowerShell
+
+```powershell
+cd cropscan
+npm install
+Copy-Item .env.example .env
+npm run dev
+```
+
+### Mac/Linux
 
 ```bash
 cd cropscan
-
-# Install dependencies
 npm install
-
-# Configure environment
-cp .env.example .env.local
-# Edit .env.local if your backend runs on a different port
-
-# Start dev server
+cp .env.example .env
 npm run dev
-# App available at http://localhost:5173
 ```
 
-### Environment Variables
+Frontend URL:
 
-**Backend (`backend/.env`)**
+- `http://127.0.0.1:5173`
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `MONGODB_URL` | Yes | MongoDB connection string |
-| `MONGODB_DB_NAME` | No | Database name (default: `cropscan`) |
-| `JWT_SECRET_KEY` | Yes | Long random secret for signing tokens |
-| `JWT_ALGORITHM` | No | JWT algorithm (default: `HS256`) |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Token TTL in minutes (default: `60`) |
-| `CORS_ORIGINS` | No | Comma-separated allowed origins |
-| `MODEL_DIR` | No | Path to `.pth` weight files (default: `models/`) |
-| `SKIP_DB_INIT` | No | Skip MongoDB index creation on startup (useful for tests) |
+### 4. Use the App
 
-**Frontend (`cropscan/.env.local`)**
+Once both servers are running:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VITE_API_BASE_URL` | `http://127.0.0.1:8000/api/v1` | Backend base URL |
+1. Open the frontend in the browser.
+2. Create an account.
+3. Log in.
+4. Go to the scan page.
+5. Upload a leaf image.
+6. Review the prediction result from both models.
+7. Review the AI-generated recommendation and ask follow-up questions in the diagnosis chat.
+8. Check the dashboard to see saved scan history.
 
----
+## API Summary
 
-## API Reference
+Main backend routes:
 
-Base path: `/api/v1`
+- `POST /api/v1/auth/signup`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/auth/me`
+- `PATCH /api/v1/auth/me`
+- `POST /api/v1/auth/change-password`
+- `POST /api/v1/upload`
+- `POST /api/v1/chat`
+- `POST /upload`
+- `GET /health`
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/health` | No | Health check |
-| `POST` | `/auth/signup` | No | Create account |
-| `POST` | `/auth/login` | No | Login, returns JWT |
-| `GET` | `/auth/me` | Yes | Get current user profile |
-| `PATCH` | `/auth/me` | Yes | Update profile |
-| `POST` | `/auth/change-password` | Yes | Change password |
-| `POST` | `/upload` | Yes | Upload leaf image → prediction |
+The upload endpoint is protected. You must be logged in and send the bearer token.
 
-### Prediction Response
+## Development Notes
 
-```json
-{
-  "fileName": "leaf.jpg",
-  "cropType": "Tomato",
-  "condition": "Early Blight",
-  "confidenceScore": 0.9241,
-  "confidencePercent": 92.41,
-  "status": "High confidence",
-  "recommendation": "Remove lower infected leaves...",
-  "predictions": [
-    {
-      "modelName": "EfficientNet-B0",
-      "className": "Tomato_Early_blight",
-      "crop": "Tomato",
-      "disease": "Early Blight",
-      "confidence": 0.9241,
-      "confident": true,
-      "topK": [...]
-    },
-    ...
-  ]
-}
+- The frontend uses local route-level lazy loading for page chunks.
+- Scan history is currently stored in browser local storage on the frontend.
+- Authentication and user profile data are backed by MongoDB through the FastAPI API.
+- The backend loads the saved PyTorch models directly from `backend/models`.
+- AI recommendations and diagnosis chat use Gemini through the backend when `GEMINI_API_KEY` is set. The backend falls back to deterministic guidance if the Gemini call fails.
+
+## Quick Verification Commands
+
+### Frontend
+
+```powershell
+cd cropscan
+npm run lint
+npm run build
 ```
 
-`status` is `"High confidence"` when both models agree and both exceed 70% confidence; otherwise `"Review needed"`.
+### Backend
 
----
-
-## Running Tests
-
-```bash
+```powershell
 cd backend
-pytest
+.\.venv\Scripts\Activate.ps1
+python -m pytest tests
+python -m compileall app
 ```
 
----
+### Docker
 
-## Model Weights
+```powershell
+docker compose build
+docker compose up
+```
 
-The trained `.pth` files are not included in this repository due to file size. Place them in `backend/models/`:
+## Common Problems
 
-- `efficientnet_b0_cropscan.pth`
-- `mobilenetv2_cropscan.pth`
+### 1. `py -3.11` is not found
 
-Both models are fine-tuned on the [PlantVillage dataset](https://www.kaggle.com/datasets/emmarex/plantdisease) using transfer learning with a custom 15-class classifier head.
+Install Python 3.11, then rerun the backend setup.
 
----
+### 2. Upload fails because model files are missing
 
-## License
+Make sure these files exist:
 
-This project was developed as an academic course project by Team Cultivate.
+```text
+backend/models/efficientnet_b0_cropscan.pth
+backend/models/mobilenetv2_cropscan.pth
+```
+
+### 3. Frontend cannot reach backend
+
+Check:
+
+- backend is running on port `8000`
+- `cropscan/.env` points to `http://127.0.0.1:8000/api/v1`
+- `backend/.env` includes the frontend origin in `CORS_ORIGINS`
+
+### 4. Authentication fails
+
+Check:
+
+- `MONGODB_URL` is correct
+- `JWT_SECRET_KEY` is set
+- backend server restarted after `.env` changes
+
+### 5. Docker build fails or containers cannot start
+
+Check:
+
+- Docker Desktop is running
+- `backend/.env` exists and has real values
+- the model files still exist in `backend/models`
+- ports `5173` and `8000` are not already in use
+
+## Team Workflow Suggestion
+
+Use feature branches for active work and merge into `develop` after verification. Keep `main` for the stable version only.
+
+Typical flow:
+
+```text
+feature branch -> develop -> main
+```
+
+## Current Stack
+
+- Frontend: React, TypeScript, Vite, Tailwind CSS, React Router
+- Backend: FastAPI, PyMongo, JWT, Pydantic Settings
+- ML: PyTorch, torchvision, EfficientNet-B0, MobileNetV2
+- Database: MongoDB

@@ -32,13 +32,43 @@ export function writeAnalyses(records: AnalysisRecord[]) {
   localStorage.setItem(ANALYSES_KEY, JSON.stringify(records))
 }
 
+function getAnalysisKey(record: AnalysisRecord) {
+  return `${record.userEmail}::${record.imageDataUrl}`
+}
+
+function dedupeAnalyses(records: AnalysisRecord[]) {
+  const seenKeys = new Set<string>()
+  const uniqueRecords: AnalysisRecord[] = []
+
+  for (const record of records) {
+    const key = getAnalysisKey(record)
+    if (seenKeys.has(key)) continue
+
+    seenKeys.add(key)
+    uniqueRecords.push(record)
+  }
+
+  return uniqueRecords
+}
+
 export function getUserAnalyses(email: string) {
-  return readAnalyses().filter((record) => record.userEmail === email)
+  const records = readAnalyses()
+  const uniqueRecords = dedupeAnalyses(records)
+
+  if (uniqueRecords.length !== records.length) {
+    writeAnalyses(uniqueRecords)
+  }
+
+  return uniqueRecords.filter((record) => record.userEmail === email)
 }
 
 export function saveAnalysis(record: AnalysisRecord) {
   const existingRecords = readAnalyses()
-  writeAnalyses([record, ...existingRecords])
+  const recordsWithoutSameImage = existingRecords.filter(
+    (existingRecord) => getAnalysisKey(existingRecord) !== getAnalysisKey(record),
+  )
+
+  writeAnalyses([record, ...recordsWithoutSameImage])
 }
 
 export function updateAnalysisNotes(id: string, notes: string) {

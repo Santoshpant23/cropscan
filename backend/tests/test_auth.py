@@ -152,3 +152,53 @@ def test_signup_rejects_duplicate_email() -> None:
         },
     )
     assert second_response.status_code == 409
+
+
+def test_forgot_password_resets_password_for_existing_user() -> None:
+    client, _fake_collection = build_client()
+
+    signup_response = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "full_name": "Reset User",
+            "email": "reset@example.com",
+            "password": "StrongPass123",
+        },
+    )
+    assert signup_response.status_code == 201
+
+    reset_response = client.post(
+        "/api/v1/auth/forgot-password",
+        json={
+            "email": "reset@example.com",
+            "new_password": "UpdatedPass456",
+        },
+    )
+    assert reset_response.status_code == 200
+
+    old_login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset@example.com", "password": "StrongPass123"},
+    )
+    assert old_login_response.status_code == 401
+
+    new_login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset@example.com", "password": "UpdatedPass456"},
+    )
+    assert new_login_response.status_code == 200
+
+
+def test_signup_validation_errors_are_returned_as_readable_message() -> None:
+    client, _fake_collection = build_client()
+
+    response = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "full_name": "A",
+            "email": "not-an-email",
+            "password": "short",
+        },
+    )
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], str)

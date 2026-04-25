@@ -17,7 +17,13 @@ class Settings(BaseSettings):
     cors_origins: str = Field(
         "http://localhost:5173,http://127.0.0.1:5173", alias="CORS_ORIGINS"
     )
+    cors_origin_regex: str = Field(
+        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        alias="CORS_ORIGIN_REGEX",
+    )
     model_dir: str = Field("models", alias="MODEL_DIR")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_model: str = Field("gemini-2.5-flash", alias="GEMINI_MODEL")
     skip_db_init: bool = Field(False, alias="SKIP_DB_INIT")
 
     model_config = SettingsConfigDict(

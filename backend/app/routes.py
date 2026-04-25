@@ -9,6 +9,7 @@ from app.database import get_users_collection_dependency
 from app.dependencies import get_current_user
 from app.models import (
     PasswordChange,
+    PasswordResetRequest,
     TokenResponse,
     UserCreate,
     UserLogin,
@@ -140,3 +141,33 @@ def change_password(
         },
     )
     return {"message": "Password updated successfully."}
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+def forgot_password(
+    payload: PasswordResetRequest,
+    users_collection: Collection = Depends(get_users_collection_dependency),
+) -> dict:
+    user = users_collection.find_one({"email": payload.email.lower()})
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account was found for that email.",
+        )
+
+    if verify_password(payload.new_password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password.",
+        )
+
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "password_hash": hash_password(payload.new_password),
+                "updated_at": datetime.now(UTC),
+            }
+        },
+    )
+    return {"message": "Password reset successfully."}

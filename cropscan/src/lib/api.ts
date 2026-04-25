@@ -1,4 +1,10 @@
-import type { AuthUserResponse, UploadResponse, UserProfile } from '../types'
+import type {
+  AuthUserResponse,
+  DiagnosisChatRequest,
+  DiagnosisChatResponse,
+  UploadResponse,
+  UserProfile,
+} from '../types'
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'
@@ -18,13 +24,47 @@ function toUserProfile(user: AuthUserResponse): UserProfile {
   }
 }
 
+function extractErrorMessage(payload: unknown) {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'detail' in payload &&
+    typeof payload.detail === 'string'
+  ) {
+    return payload.detail
+  }
+
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'detail' in payload &&
+    Array.isArray(payload.detail)
+  ) {
+    return payload.detail
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null
+        const message = 'msg' in entry && typeof entry.msg === 'string' ? entry.msg : null
+        const location =
+          'loc' in entry && Array.isArray(entry.loc)
+            ? entry.loc
+                .slice(1)
+                .map((part: unknown) => String(part))
+                .join('.')
+            : ''
+        if (!message) return null
+        return location ? `${location}: ${message}` : message
+      })
+      .filter((message): message is string => Boolean(message))
+      .join('; ')
+  }
+
+  return null
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
-    const message =
-      typeof payload?.detail === 'string'
-        ? payload.detail
-        : 'Request failed. Check the backend and try again.'
+    const message = extractErrorMessage(payload) || 'Request failed. Check the backend and try again.'
     throw new Error(message)
   }
   return payload as T
@@ -38,11 +78,20 @@ async function requestJson<T>(
   headers.set('Content-Type', 'application/json')
   if (options.token) headers.set('Authorization', `Bearer ${options.token}`)
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-  })
-  return parseResponse<T>(response)
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+    })
+    return parseResponse<T>(response)
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TypeError') {
+      throw new Error(
+        `Could not reach the server at ${API_BASE_URL}. Make sure the backend is running and CORS is configured correctly.`,
+      )
+    }
+    throw error
+  }
 }
 
 export async function loginRequest(email: string, password: string) {
@@ -67,6 +116,13 @@ export async function signupRequest(profile: UserProfile, password: string) {
   })
   const user = await getProfileRequest(tokenResponse.access_token)
   return { token: tokenResponse.access_token, user }
+}
+
+export async function forgotPasswordRequest(email: string, newPassword: string) {
+  return requestJson<{ message: string }>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, new_password: newPassword }),
+  })
 }
 
 export async function getProfileRequest(token: string) {
@@ -103,4 +159,15 @@ export async function uploadLeafRequest(file: File, token: string) {
     body: formData,
   })
   return parseResponse<UploadResponse>(response)
+}
+
+export async function diagnosisChatRequest(
+  payload: DiagnosisChatRequest,
+  token: string,
+) {
+  return requestJson<DiagnosisChatResponse>('/chat', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  })
 }

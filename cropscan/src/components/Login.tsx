@@ -72,6 +72,14 @@ function Login() {
               className="mt-2 w-full rounded-md border border-[#14532d]/15 bg-white px-4 py-3 text-[#16351f] outline-none transition focus:border-[#22c55e] focus:ring-4 focus:ring-[#bbf7d0]"
               placeholder="Enter your password"
             />
+            <div className="mt-2 text-right">
+              <span
+                aria-disabled="true"
+                className="text-sm font-black text-[#8aa194]"
+              >
+                Password reset coming soon
+              </span>
+            </div>
           </div>
 
           <button

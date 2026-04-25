@@ -2,6 +2,10 @@
 
 FastAPI backend for authentication, profile management, and crop disease prediction.
 
+For full project setup, see the root `README.md`.
+
+The backend also has a Docker run path through the root `docker-compose.yml`.
+
 ## Runtime
 
 Use Python 3.11 for the backend. PyTorch and torchvision are the version-sensitive dependencies, so everyone should use the same Python version.
@@ -32,7 +36,21 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Then edit `.env` with your MongoDB URL and JWT secret.
+Then edit `.env` with your MongoDB URL, JWT secret, and Gemini API key.
+
+All commands in this file assume you are running them from inside the `backend` directory.
+
+## Docker
+
+The Docker image uses Python `3.11.9`, matching the working local backend venv.
+
+From the project root:
+
+```powershell
+docker compose up --build
+```
+
+The compose setup reads environment variables from `backend/.env`.
 
 ## Required Model Files
 
@@ -45,6 +63,10 @@ backend/models/mobilenetv2_cropscan.pth
 
 `MODEL_DIR=models` in `.env` points to that folder.
 
+The backend also uses a pretrained ImageNet MobileNetV2 model as an input gate to
+reject non-leaf uploads before disease prediction. On the first run, torchvision may
+download those pretrained weights if they are not already cached on the machine.
+
 ## Environment Variables
 
 ```env
@@ -55,6 +77,8 @@ JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 MODEL_DIR=models
+GEMINI_API_KEY=replace-with-your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 ## Endpoints
@@ -65,10 +89,20 @@ MODEL_DIR=models
 - `PATCH /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
 - `POST /api/v1/upload`
+- `POST /api/v1/chat`
 - `POST /upload`
 - `GET /health`
 
 Use `Authorization: Bearer <token>` for protected routes, including upload.
+
+`POST /upload` is kept as a compatibility route. The main frontend uses `POST /api/v1/upload`.
+
+## Verification
+
+```powershell
+python -m pytest tests
+python -m compileall app
+```
 
 ## Example Payloads
 
@@ -110,4 +144,38 @@ Upload:
 POST /api/v1/upload
 Content-Type: multipart/form-data
 file=<leaf image>
+```
+
+Diagnosis chat:
+
+```json
+{
+  "analysis": {
+    "cropType": "Apple",
+    "condition": "Black Rot",
+    "confidencePercent": 99.4,
+    "status": "High confidence",
+    "recommendation": "Short recommendation text...",
+    "recommendationDetails": {
+      "headline": "Apple Black Rot Detected",
+      "urgency": "high",
+      "overview": "Short summary...",
+      "immediateSteps": ["Step 1", "Step 2"],
+      "productCategories": ["Labeled fungicide"],
+      "cautions": ["Use only labeled products"],
+      "followUp": "Monitor over the next week."
+    },
+    "predictions": [
+      {
+        "modelName": "EfficientNet-B0",
+        "crop": "Apple",
+        "disease": "Black Rot",
+        "className": "Apple___Black_rot",
+        "confidencePercent": 99.9
+      }
+    ]
+  },
+  "messages": [],
+  "message": "What should I do first?"
+}
 ```
