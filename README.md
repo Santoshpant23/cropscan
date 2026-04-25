@@ -4,7 +4,7 @@
 
 Crop Scan is a web application built for smallholder farmers, backyard gardeners, and agricultural staff who need fast, reliable plant disease diagnosis without access to an agronomist. Upload a photo of a leaf and get an instant prediction, confidence score, and plain-language treatment recommendation.
 
-**Team Cultivate** — Aisha Noor, Dipsha Budhathoki, Santosh Pant
+**Team Cultivate** — Aisha Noor, Dipsha Budhathoki, Santosh Pant, Nima Sherpa
 
 ---
 
