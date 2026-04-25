@@ -1,5 +1,5 @@
 import type { ChangeEvent } from 'react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { diagnosisChatRequest, uploadLeafRequest } from '../lib/api'
@@ -18,6 +18,8 @@ const QUICK_CHAT_PROMPTS = [
   'What product categories should I consider?',
   'What should I monitor over the next few days?',
 ]
+
+type CaptureMode = 'upload' | 'camera'
 
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -101,30 +103,55 @@ function buildChatRequest(
 function ScanPage() {
   const { token, user } = useAuth()
   const isAnalyzeRequestInFlight = useRef(false)
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState('')
   const [fileName, setFileName] = useState('')
   const [latestRecord, setLatestRecord] = useState<AnalysisRecord | null>(null)
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('upload')
   const [isReadingFile, setIsReadingFile] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isStartingCamera, setIsStartingCamera] = useState(false)
+  const [isCameraActive, setIsCameraActive] = useState(false)
   const [chatMessages, setChatMessages] = useState<DiagnosisChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [isSendingChat, setIsSendingChat] = useState(false)
   const [chatError, setChatError] = useState('')
+  const [cameraError, setCameraError] = useState('')
   const [error, setError] = useState('')
   const usedQuestionCount = chatMessages.filter(
     (message) => message.role === 'user',
   ).length
   const remainingQuestionCount = MAX_CHAT_QUESTIONS - usedQuestionCount
   const hasReachedChatLimit = remainingQuestionCount <= 0
+  const isCameraSupported =
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices &&
+    !!navigator.mediaDevices.getUserMedia
 
-  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
+  useEffect(() => {
+    return () => {
+      stopCameraStream()
+    }
+  }, [])
 
+  function stopCameraStream() {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop())
+      cameraStreamRef.current = null
+    }
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = null
+    }
+    setIsCameraActive(false)
+  }
+
+  async function setSelectedImage(file: File) {
     setIsReadingFile(true)
     setLatestRecord(null)
     setError('')
+    setCameraError('')
     setChatMessages([])
     setChatInput('')
     setChatError('')
@@ -132,6 +159,103 @@ function ScanPage() {
     setFileName(file.name)
     setImageDataUrl(await fileToDataUrl(file))
     setIsReadingFile(false)
+  }
+
+  async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    stopCameraStream()
+    await setSelectedImage(file)
+  }
+
+  async function handleStartCamera() {
+    if (!isCameraSupported || isStartingCamera) {
+      return
+    }
+
+    setCaptureMode('camera')
+    setCameraError('')
+    setError('')
+    setIsStartingCamera(true)
+
+    try {
+      stopCameraStream()
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+        },
+        audio: false,
+      })
+      cameraStreamRef.current = stream
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream
+        await cameraVideoRef.current.play()
+      }
+      setIsCameraActive(true)
+    } catch (caughtError) {
+      setCameraError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Camera access was blocked.',
+      )
+      stopCameraStream()
+    } finally {
+      setIsStartingCamera(false)
+    }
+  }
+
+  async function handleCapturePhoto() {
+    if (!cameraVideoRef.current) {
+      return
+    }
+
+    const video = cameraVideoRef.current
+    const width = video.videoWidth
+    const height = video.videoHeight
+    if (!width || !height) {
+      setCameraError('The camera is not ready yet. Try again in a moment.')
+      return
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) {
+      setCameraError('Could not capture a frame from the camera.')
+      return
+    }
+
+    context.drawImage(video, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.92),
+    )
+    if (!blob) {
+      setCameraError('Could not turn the captured image into a file.')
+      return
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const capturedFile = new File([blob], `cropscan-capture-${timestamp}.jpg`, {
+      type: 'image/jpeg',
+    })
+
+    stopCameraStream()
+    await setSelectedImage(capturedFile)
+  }
+
+  function handleRetakeCameraPhoto() {
+    setSelectedFile(null)
+    setFileName('')
+    setImageDataUrl('')
+    setLatestRecord(null)
+    setError('')
+    setCameraError('')
+    setChatMessages([])
+    setChatInput('')
+    setChatError('')
+    void handleStartCamera()
   }
 
   async function handleAnalyze() {
@@ -233,37 +357,135 @@ function ScanPage() {
             analysis to your dashboard.
           </p>
 
-          <label
-            htmlFor="leaf-photo"
-            className="mt-6 flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#22c55e]/40 bg-[#f0fdf4] p-4 text-center transition hover:border-[#15803d] hover:bg-[#dcfce7]"
-          >
-            {imageDataUrl ? (
-              <img
-                src={imageDataUrl}
-                alt="Selected leaf preview"
-                className="h-72 w-full rounded-md object-cover"
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCaptureMode('upload')
+                setCameraError('')
+                stopCameraStream()
+              }}
+              className={`cursor-pointer rounded-md px-4 py-3 text-sm font-black transition ${
+                captureMode === 'upload'
+                  ? 'bg-[#16351f] text-white'
+                  : 'bg-[#f0fdf4] text-[#16351f] ring-1 ring-[#14532d]/10 hover:bg-[#dcfce7]'
+              }`}
+            >
+              Upload image
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleStartCamera()
+              }}
+              disabled={!isCameraSupported || isStartingCamera}
+              className={`cursor-pointer rounded-md px-4 py-3 text-sm font-black transition ${
+                captureMode === 'camera'
+                  ? 'bg-[#16351f] text-white'
+                  : 'bg-[#f0fdf4] text-[#16351f] ring-1 ring-[#14532d]/10 hover:bg-[#dcfce7]'
+              } disabled:cursor-not-allowed disabled:bg-[#d7dfda] disabled:text-[#708074]`}
+            >
+              {isStartingCamera ? 'Opening camera...' : 'Use camera'}
+            </button>
+          </div>
+
+          {captureMode === 'upload' ? (
+            <label
+              htmlFor="leaf-photo"
+              className="mt-6 flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#22c55e]/40 bg-[#f0fdf4] p-4 text-center transition hover:border-[#15803d] hover:bg-[#dcfce7]"
+            >
+              {imageDataUrl ? (
+                <img
+                  src={imageDataUrl}
+                  alt="Selected leaf preview"
+                  className="h-72 w-full rounded-md object-cover sm:h-80"
+                />
+              ) : (
+                <span className="max-w-xs">
+                  <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md bg-[#16351f] text-xl font-black text-[#bef264]">
+                    +
+                  </span>
+                  <span className="block text-base font-black text-[#16351f]">
+                    Choose leaf image
+                  </span>
+                  <span className="mt-2 block text-sm text-[#4b5d50]">
+                    PNG, JPG, or a camera photo from your device
+                  </span>
+                </span>
+              )}
+              <input
+                id="leaf-photo"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={handleImageChange}
               />
-            ) : (
-              <span className="max-w-xs">
-                <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md bg-[#16351f] text-xl font-black text-[#bef264]">
-                  +
-                </span>
-                <span className="block text-base font-black text-[#16351f]">
-                  Choose leaf image
-                </span>
-                <span className="mt-2 block text-sm text-[#4b5d50]">
-                  PNG, JPG, or camera photo
-                </span>
-              </span>
-            )}
-            <input
-              id="leaf-photo"
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleImageChange}
-            />
-          </label>
+            </label>
+          ) : (
+            <div className="mt-6 rounded-lg border border-[#14532d]/10 bg-[#f0fdf4] p-4">
+              {imageDataUrl && !isCameraActive ? (
+                <img
+                  src={imageDataUrl}
+                  alt="Captured leaf preview"
+                  className="h-72 w-full rounded-md object-cover sm:h-80"
+                />
+              ) : (
+                <div className="overflow-hidden rounded-md bg-[#d7dfda]">
+                  <video
+                    ref={cameraVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="h-72 w-full object-cover sm:h-80"
+                  />
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                {isCameraActive ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleCapturePhoto}
+                      className="w-full cursor-pointer rounded-md bg-[#16351f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#14532d] sm:w-auto"
+                    >
+                      Capture photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopCameraStream}
+                      className="w-full cursor-pointer rounded-md bg-white px-4 py-3 text-sm font-black text-[#16351f] ring-1 ring-[#14532d]/10 transition hover:bg-[#f8faf8] sm:w-auto"
+                    >
+                      Close camera
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleStartCamera()
+                      }}
+                      disabled={isStartingCamera || !isCameraSupported}
+                      className="w-full cursor-pointer rounded-md bg-[#16351f] px-4 py-3 text-sm font-black text-white transition hover:bg-[#14532d] sm:w-auto disabled:cursor-not-allowed disabled:bg-[#708074]"
+                    >
+                      {isStartingCamera ? 'Opening camera...' : 'Open camera'}
+                    </button>
+                    {imageDataUrl ? (
+                      <button
+                        type="button"
+                        onClick={handleRetakeCameraPhoto}
+                        className="w-full cursor-pointer rounded-md bg-white px-4 py-3 text-sm font-black text-[#16351f] ring-1 ring-[#14532d]/10 transition hover:bg-[#f8faf8] sm:w-auto"
+                      >
+                        Retake photo
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {fileName && (
             <p className="mt-3 truncate text-sm font-bold text-[#4b5d50]">
@@ -271,14 +493,24 @@ function ScanPage() {
             </p>
           )}
 
+          <p className="mt-3 text-sm leading-6 text-[#4b5d50]">
+            Best results come from one leaf, bright lighting, and a simple background.
+          </p>
+
           <button
             type="button"
             onClick={handleAnalyze}
             disabled={!imageDataUrl || isReadingFile || isAnalyzing}
             className="mt-5 w-full cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa]"
           >
-            {isAnalyzing ? 'Analyzing leaf...' : 'Run both models'}
+              {isAnalyzing ? 'Analyzing leaf...' : 'Run both models'}
           </button>
+
+          {cameraError && (
+            <p className="mt-4 rounded-md bg-[#eff6ff] px-4 py-3 text-sm font-bold text-[#1d4ed8] ring-1 ring-[#bfdbfe]">
+              {cameraError}
+            </p>
+          )}
 
           {error && (
             <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#be123c] ring-1 ring-[#fecdd3]">
