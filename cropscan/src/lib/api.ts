@@ -48,7 +48,7 @@ function extractErrorMessage(payload: unknown) {
           'loc' in entry && Array.isArray(entry.loc)
             ? entry.loc
                 .slice(1)
-                .map((part) => String(part))
+                .map((part: unknown) => String(part))
                 .join('.')
             : ''
         if (!message) return null
