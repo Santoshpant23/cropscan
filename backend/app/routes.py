@@ -1,5 +1,10 @@
+from fastapi import BackgroundTasks
+from .email import send_welcome_email  # Make sure this matches your file structure!
+import random
+import string
 from datetime import UTC, datetime
-
+from fastapi import BackgroundTasks
+from app.email import send_verification_email
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo.collection import Collection
@@ -14,6 +19,7 @@ from app.models import (
     UserLogin,
     UserResponse,
     UserUpdate,
+    VerifyEmailRequest,
 )
 from app.security import create_access_token, hash_password, verify_password
 
@@ -25,31 +31,76 @@ def serialize_user(user: dict) -> UserResponse:
     return UserResponse.model_validate(serialized_user)
 
 
-@router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+def generate_verification_code():
+    return ''.join(random.choices(string.digits, k=6))
+
+@router.post("/signup", status_code=status.HTTP_201_CREATED)
 def signup(
     payload: UserCreate,
+    background_tasks: BackgroundTasks,
     users_collection: Collection = Depends(get_users_collection_dependency),
-) -> TokenResponse:
+) -> dict:
     now = datetime.now(UTC)
+    verification_code = generate_verification_code()
+
     user_document = {
         "full_name": payload.full_name.strip(),
         "email": payload.email.lower(),
         "role": payload.role.strip(),
         "location": payload.location.strip(),
         "password_hash": hash_password(payload.password),
+        "is_verified": False,
+        "verification_code": verification_code,
         "created_at": now,
         "updated_at": now,
     }
     try:
-        result = users_collection.insert_one(user_document)
+        users_collection.insert_one(user_document)
     except DuplicateKeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists.",
         ) from exc
 
-    return TokenResponse(access_token=create_access_token(str(result.inserted_id)))
+    background_tasks.add_task(send_verification_email, payload.email.lower(), verification_code)
 
+    return {
+        "message": "User created. Please check your email for the verification code.",
+        "email": payload.email.lower()
+    }
+
+@router.post("/verify", response_model=TokenResponse)
+def verify_email(
+    payload: VerifyEmailRequest,
+    background_tasks: BackgroundTasks, 
+    users_collection: Collection = Depends(get_users_collection_dependency),
+) -> TokenResponse:
+    user = users_collection.find_one({"email": payload.email.lower()})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    if user.get("is_verified"):
+        raise HTTPException(status_code=400, detail="Email is already verified")
+
+    if user.get("verification_code") != payload.code:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+  
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "is_verified": True,
+                "verification_code": None,
+                "updated_at": datetime.now(UTC)
+            }
+        }
+    )
+    user_name = user.get("full_name", user.get("name", "there"))
+    background_tasks.add_task(send_welcome_email, user["email"], user_name)
+
+    return TokenResponse(access_token=create_access_token(str(user["_id"])))
 
 @router.post("/login", response_model=TokenResponse)
 def login(

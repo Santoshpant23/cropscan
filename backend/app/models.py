@@ -9,6 +9,8 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     role: str = Field(default="Smallholder farmer", max_length=80)
     location: str = Field(default="Knox County, TN", max_length=120)
+    is_verified: bool = Field(default=False)
+    verification_code: str | None = Field(default=None)
 
 
 class UserLogin(BaseModel):
@@ -39,7 +41,12 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str = "Smallholder farmer"
     location: str = "Knox County, TN"
+    is_verified: bool 
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(populate_by_name=True)
+
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
