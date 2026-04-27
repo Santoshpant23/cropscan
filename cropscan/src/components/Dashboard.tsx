@@ -102,7 +102,10 @@ function Dashboard() {
           ['High confidence', stats.highConfidence],
           ['Avg confidence', `${stats.averageConfidence}%`],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-lg bg-white p-5 shadow-sm ring-1 ring-[#14532d]/10">
+          <div
+            key={label}
+            className="crop-fade-up rounded-lg bg-white p-5 shadow-sm ring-1 ring-[#14532d]/10 transition hover:-translate-y-0.5 hover:shadow-md"
+          >
             <p className="text-sm font-bold text-[#4b5d50]">{label}</p>
             <p className="mt-2 text-3xl font-black text-[#16351f]">{value}</p>
           </div>
@@ -127,7 +130,7 @@ function Dashboard() {
           {records.map((record) => (
             <article
               key={record.id}
-              className="grid gap-5 rounded-lg border border-[#14532d]/10 bg-white p-4 shadow-sm lg:grid-cols-[220px_1fr]"
+              className="crop-fade-up grid gap-5 rounded-lg border border-[#14532d]/10 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md lg:grid-cols-[220px_1fr]"
             >
               <img
                 src={record.imageDataUrl}
@@ -177,6 +180,21 @@ function Dashboard() {
                 <p className="mt-4 text-sm leading-6 text-[#4b5d50]">
                   {record.recommendation}
                 </p>
+
+                {record.recommendationDetails?.productRecommendations?.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {record.recommendationDetails.productRecommendations
+                      .slice(0, 3)
+                      .map((product) => (
+                        <span
+                          key={`${record.id}-${product.title}`}
+                          className="rounded-full bg-[#f0fdf4] px-3 py-1 text-xs font-black text-[#166534] ring-1 ring-[#bbf7d0]"
+                        >
+                          {product.category}: {product.title}
+                        </span>
+                      ))}
+                  </div>
+                ) : null}
 
                 <div className="mt-4">
                   <label

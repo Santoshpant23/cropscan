@@ -51,6 +51,18 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ProductRecommendation(BaseModel):
+    title: str = Field(min_length=3, max_length=80)
+    category: str = Field(min_length=3, max_length=80)
+    priority: Literal["essential", "helpful", "monitoring"]
+    use_case: str = Field(min_length=10, max_length=180, alias="useCase")
+    timing: str = Field(min_length=5, max_length=120)
+    buyer_note: str = Field(min_length=10, max_length=180, alias="buyerNote")
+    caution: str = Field(min_length=10, max_length=180)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class RecommendationDetails(BaseModel):
     headline: str = Field(min_length=4, max_length=120)
     urgency: Literal["low", "medium", "high"]
@@ -58,6 +70,9 @@ class RecommendationDetails(BaseModel):
     immediate_steps: list[str] = Field(default_factory=list, alias="immediateSteps")
     product_categories: list[str] = Field(
         default_factory=list, alias="productCategories"
+    )
+    product_recommendations: list[ProductRecommendation] = Field(
+        default_factory=list, alias="productRecommendations"
     )
     cautions: list[str] = Field(default_factory=list)
     follow_up: str = Field(min_length=20, max_length=400, alias="followUp")

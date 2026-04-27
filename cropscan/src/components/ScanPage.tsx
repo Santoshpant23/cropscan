@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
@@ -13,11 +13,17 @@ import type {
 
 const MAX_CHAT_QUESTIONS = 10
 const QUICK_CHAT_PROMPTS = [
-  'What should I do first this week?',
-  'How serious is this diagnosis?',
-  'What product categories should I consider?',
-  'What should I monitor over the next few days?',
+  'Give me a 3-day action plan.',
+  'How serious is this?',
+  'Which supplies matter most?',
+  'What should I monitor next?',
 ]
+
+const PRODUCT_PRIORITY_STYLES = {
+  essential: 'bg-[#dcfce7] text-[#166534]',
+  helpful: 'bg-[#ffedd5] text-[#9a3412]',
+  monitoring: 'bg-[#e0f2fe] text-[#075985]',
+}
 
 type CaptureMode = 'upload' | 'camera'
 
@@ -84,6 +90,7 @@ function buildChatRequest(
         overview: record.recommendation,
         immediateSteps: [],
         productCategories: [],
+        productRecommendations: [],
         cautions: [],
         followUp: 'Monitor the plant and confirm with a local expert if needed.',
       },
@@ -105,6 +112,7 @@ function ScanPage() {
   const isAnalyzeRequestInFlight = useRef(false)
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
+  const chatEndRef = useRef<HTMLDivElement | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [imageDataUrl, setImageDataUrl] = useState('')
   const [fileName, setFileName] = useState('')
@@ -135,6 +143,10 @@ function ScanPage() {
       stopCameraStream()
     }
   }, [])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [chatMessages, isSendingChat])
 
   function stopCameraStream() {
     if (cameraStreamRef.current) {
@@ -287,7 +299,7 @@ function ScanPage() {
         {
           role: 'assistant',
           content:
-            'I have the diagnosis context for this scan. Ask about treatment timing, spread risk, or useful product categories.',
+            'I have the scan result and treatment context ready. Ask me about timing, spread risk, supplies, or what to do next.',
         },
       ])
       setChatInput('')
@@ -344,10 +356,16 @@ function ScanPage() {
     }
   }
 
+  function handleChatKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey) return
+    event.preventDefault()
+    void handleSendChat()
+  }
+
   return (
     <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-        <div className="rounded-lg border border-[#14532d]/10 bg-white p-5 shadow-sm sm:p-6">
+        <div className="crop-fade-up rounded-lg border border-[#14532d]/10 bg-white p-5 shadow-sm sm:p-6">
           <p className="text-sm font-bold uppercase text-[#15803d]">Protected scan</p>
           <h1 className="mt-2 text-3xl font-black text-[#16351f]">
             Upload a leaf photo
@@ -392,14 +410,23 @@ function ScanPage() {
           {captureMode === 'upload' ? (
             <label
               htmlFor="leaf-photo"
-              className="mt-6 flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#22c55e]/40 bg-[#f0fdf4] p-4 text-center transition hover:border-[#15803d] hover:bg-[#dcfce7]"
-            >
-              {imageDataUrl ? (
+            className="relative mt-6 flex min-h-80 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-[#22c55e]/40 bg-[#f0fdf4] p-4 text-center transition hover:border-[#15803d] hover:bg-[#dcfce7]"
+          >
+            {imageDataUrl ? (
+              <div className="relative w-full">
                 <img
                   src={imageDataUrl}
                   alt="Selected leaf preview"
                   className="h-72 w-full rounded-md object-cover sm:h-80"
                 />
+                {isAnalyzing ? (
+                  <div className="crop-scan-overlay flex items-end justify-center p-4">
+                    <span className="rounded-full bg-[#16351f]/90 px-3 py-1 text-xs font-black uppercase text-[#bef264]">
+                      scanning image
+                    </span>
+                  </div>
+                ) : null}
+              </div>
               ) : (
                 <span className="max-w-xs">
                   <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md bg-[#16351f] text-xl font-black text-[#bef264]">
@@ -425,11 +452,20 @@ function ScanPage() {
           ) : (
             <div className="mt-6 rounded-lg border border-[#14532d]/10 bg-[#f0fdf4] p-4">
               {imageDataUrl && !isCameraActive ? (
-                <img
-                  src={imageDataUrl}
-                  alt="Captured leaf preview"
-                  className="h-72 w-full rounded-md object-cover sm:h-80"
-                />
+                <div className="relative">
+                  <img
+                    src={imageDataUrl}
+                    alt="Captured leaf preview"
+                    className="h-72 w-full rounded-md object-cover sm:h-80"
+                  />
+                  {isAnalyzing ? (
+                    <div className="crop-scan-overlay flex items-end justify-center p-4">
+                      <span className="rounded-full bg-[#16351f]/90 px-3 py-1 text-xs font-black uppercase text-[#bef264]">
+                        scanning image
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <div className="overflow-hidden rounded-md bg-[#d7dfda]">
                   <video
@@ -501,9 +537,16 @@ function ScanPage() {
             type="button"
             onClick={handleAnalyze}
             disabled={!imageDataUrl || isReadingFile || isAnalyzing}
-            className="mt-5 w-full cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa]"
+            className="mt-5 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#ea580c] hover:shadow-lg hover:shadow-[#f97316]/20 disabled:cursor-not-allowed disabled:bg-[#a8b3aa] disabled:shadow-none disabled:hover:translate-y-0"
           >
-              {isAnalyzing ? 'Analyzing leaf...' : 'Run both models'}
+            {isAnalyzing ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                Analyzing leaf...
+              </>
+            ) : (
+              'Run both models'
+            )}
           </button>
 
           {cameraError && (
@@ -519,7 +562,7 @@ function ScanPage() {
           )}
         </div>
 
-        <div className="rounded-lg bg-[#16351f] p-5 text-white shadow-sm sm:p-6">
+        <div className="crop-fade-up rounded-lg bg-[#16351f] p-5 text-white shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-sm font-bold uppercase text-[#bef264]">
@@ -535,7 +578,26 @@ function ScanPage() {
             </Link>
           </div>
 
-          {!latestRecord ? (
+          {!latestRecord && isAnalyzing ? (
+            <div className="mt-8 space-y-5">
+              <div className="rounded-lg border border-white/15 bg-white/8 p-5">
+                <div className="h-4 w-32 animate-pulse rounded bg-white/20" />
+                <div className="mt-4 h-8 w-64 animate-pulse rounded bg-white/20" />
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <div className="h-36 animate-pulse rounded-lg bg-white/90" />
+                  <div className="h-36 animate-pulse rounded-lg bg-white/90" />
+                </div>
+                <div className="mt-5 h-4 w-full animate-pulse rounded bg-white/20" />
+                <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-white/20" />
+              </div>
+              <div className="rounded-lg border border-white/15 bg-white/8 p-5">
+                <div className="flex items-center gap-2 text-sm font-black text-[#bef264]">
+                  <span className="h-2 w-2 rounded-full bg-[#bef264]" />
+                  Running leaf validation, two models, and guidance generation
+                </div>
+              </div>
+            </div>
+          ) : !latestRecord ? (
             <div className="mt-8 rounded-lg border border-white/15 bg-white/8 p-6">
               <p className="text-lg font-black text-white">No result yet</p>
               <p className="mt-2 text-sm leading-6 text-[#d1fae5]">
@@ -652,6 +714,54 @@ function ScanPage() {
                   </div>
                 ) : null}
 
+                {latestRecord.recommendationDetails?.productRecommendations?.length ? (
+                  <div className="mt-5">
+                    <h4 className="text-xs font-black uppercase tracking-wide text-[#bef264]">
+                      Supply plan
+                    </h4>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                      {latestRecord.recommendationDetails.productRecommendations.map(
+                        (product) => (
+                          <article
+                            key={`${product.category}-${product.title}`}
+                            className="rounded-lg border border-white/10 bg-white p-4 text-[#16351f] shadow-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-black uppercase text-[#15803d]">
+                                  {product.category}
+                                </p>
+                                <h5 className="mt-1 text-sm font-black">
+                                  {product.title}
+                                </h5>
+                              </div>
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-[11px] font-black uppercase ${
+                                  PRODUCT_PRIORITY_STYLES[product.priority]
+                                }`}
+                              >
+                                {product.priority}
+                              </span>
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-[#4b5d50]">
+                              {product.useCase}
+                            </p>
+                            <div className="mt-3 space-y-2 border-t border-[#14532d]/10 pt-3 text-xs font-bold text-[#4b5d50]">
+                              <p>Timing: {product.timing}</p>
+                              <p>Buyer's note: {product.buyerNote}</p>
+                              <p className="text-[#9a3412]">{product.caution}</p>
+                            </div>
+                          </article>
+                        ),
+                      )}
+                    </div>
+                    <p className="mt-3 text-xs font-bold uppercase text-[#d1fae5]">
+                      Category-level suggestions only. Confirm labels before purchase
+                      or application.
+                    </p>
+                  </div>
+                ) : null}
+
                 {latestRecord.recommendationDetails?.cautions?.length ? (
                   <div className="mt-5">
                     <h4 className="text-xs font-black uppercase tracking-wide text-[#bef264]">
@@ -674,21 +784,22 @@ function ScanPage() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-white/15 bg-white/8 p-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="crop-fade-up rounded-lg border border-white/15 bg-[#f8faf8] p-4 text-[#16351f] shadow-sm sm:p-5">
+                <div className="flex flex-col gap-3 border-b border-[#14532d]/10 pb-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h3 className="font-black text-[#bef264]">Ask CropScan</h3>
-                    <p className="mt-2 text-sm leading-6 text-[#d1fae5]">
-                      Follow up on treatment, product categories, spread risk, or next
-                      steps for this diagnosis.
+                    <h3 className="text-lg font-black text-[#16351f]">
+                      CropScan chat
+                    </h3>
+                    <p className="mt-1 text-sm leading-6 text-[#4b5d50]">
+                      Follow up on timing, spread risk, supplies, or next steps.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-[#ecfdf5] ring-1 ring-white/10">
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-black uppercase text-[#4b5d50] ring-1 ring-[#14532d]/10">
                       {usedQuestionCount}/{MAX_CHAT_QUESTIONS} used
                     </span>
                     <span
-                      className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                      className={`rounded-full px-3 py-1 text-xs font-black uppercase ${
                         hasReachedChatLimit
                           ? 'bg-[#fecaca] text-[#7f1d1d]'
                           : 'bg-[#dcfce7] text-[#166534]'
@@ -708,71 +819,90 @@ function ScanPage() {
                       type="button"
                       onClick={() => setChatInput(prompt)}
                       disabled={!latestRecord || hasReachedChatLimit || isSendingChat}
-                      className="cursor-pointer rounded-full bg-white/8 px-3 py-2 text-xs font-bold text-[#ecfdf5] ring-1 ring-white/10 transition hover:bg-white/12 disabled:cursor-not-allowed disabled:bg-white/5 disabled:text-[#9db4a3]"
+                      className="cursor-pointer rounded-full bg-white px-3 py-2 text-xs font-bold text-[#16351f] ring-1 ring-[#14532d]/10 transition hover:-translate-y-0.5 hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:bg-[#eef3ef] disabled:text-[#8aa194] disabled:hover:translate-y-0"
                     >
                       {prompt}
                     </button>
                   ))}
                 </div>
 
-                <div className="mt-5 max-h-[420px] space-y-3 overflow-y-auto rounded-lg border border-white/10 bg-[#0f2717] p-3 sm:p-4">
+                <div className="crop-chat-scroll mt-5 max-h-[520px] min-h-[320px] space-y-5 overflow-y-auto rounded-lg border border-[#14532d]/10 bg-white p-3 sm:p-4">
                   {chatMessages.length ? (
                     chatMessages.map((message, index) => (
                       <div
                         key={`${message.role}-${index}`}
-                        className={`flex ${
-                          message.role === 'assistant'
-                            ? 'justify-start'
-                            : 'justify-end'
+                        className={`flex gap-3 ${
+                          message.role === 'assistant' ? 'justify-start' : 'justify-end'
                         }`}
                       >
+                        {message.role === 'assistant' ? (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#16351f] text-xs font-black text-[#bef264]">
+                            CS
+                          </div>
+                        ) : null}
                         <div
-                          className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[80%] ${
-                          message.role === 'assistant'
-                            ? 'border border-[#14532d]/10 bg-white text-[#16351f]'
-                            : 'bg-[#14532d] text-white ring-1 ring-[#1f6b3b]'
-                        }`}
+                          className={`max-w-[88%] rounded-lg px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[78%] ${
+                            message.role === 'assistant'
+                              ? 'border border-[#14532d]/10 bg-[#f4fbf7] text-[#16351f]'
+                              : 'bg-[#16351f] text-white'
+                          }`}
                         >
-                          <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-[#15803d]">
-                            {message.role === 'assistant' ? 'CropScan AI' : 'You'}
-                          </p>
                           <p className="whitespace-pre-wrap">{message.content}</p>
                         </div>
+                        {message.role === 'user' ? (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#f97316] text-xs font-black text-white">
+                            You
+                          </div>
+                        ) : null}
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-4 text-sm text-[#d1fae5]">
-                      Run a scan first, then ask follow-up questions here. The chat
-                      keeps this scan's history in each follow-up request, up to 10
-                      questions.
+                    <div className="rounded-lg border border-[#14532d]/10 bg-[#f4fbf7] px-4 py-4 text-sm text-[#4b5d50]">
+                      Run a scan first, then ask follow-up questions here.
                     </div>
                   )}
+                  {isSendingChat ? (
+                    <div className="flex gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#16351f] text-xs font-black text-[#bef264]">
+                        CS
+                      </div>
+                      <div className="rounded-lg border border-[#14532d]/10 bg-[#f4fbf7] px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="crop-typing-dot h-2 w-2 rounded-full bg-[#15803d]" />
+                          <span className="crop-typing-dot h-2 w-2 rounded-full bg-[#15803d]" />
+                          <span className="crop-typing-dot h-2 w-2 rounded-full bg-[#15803d]" />
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div ref={chatEndRef} />
                 </div>
 
-                <div className="mt-5 space-y-3">
+                <div className="mt-4 rounded-lg border border-[#14532d]/10 bg-white p-3 shadow-sm">
                   <textarea
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
+                    onKeyDown={handleChatKeyDown}
                     rows={3}
                     maxLength={1500}
-                    placeholder="Ask about treatment timing, likely spread, or useful product categories."
+                    placeholder="Ask a follow-up..."
                     disabled={!latestRecord || hasReachedChatLimit}
-                    className="w-full rounded-lg border border-white/10 bg-white px-4 py-3 text-sm text-[#16351f] outline-none ring-0 placeholder:text-[#6b7a6e] focus:border-[#bef264] disabled:cursor-not-allowed disabled:bg-[#d7dfda]"
+                    className="max-h-48 min-h-24 w-full resize-y rounded-md border-0 bg-transparent px-2 py-2 text-sm text-[#16351f] outline-none ring-0 placeholder:text-[#6b7a6e] disabled:cursor-not-allowed disabled:bg-[#f3f6f4]"
                   />
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     {chatError ? (
-                      <p className="text-sm font-bold text-[#fecdd3]">{chatError}</p>
+                      <p className="text-sm font-bold text-[#be123c]">{chatError}</p>
                     ) : hasReachedChatLimit ? (
-                      <p className="text-sm font-bold text-[#fed7aa]">
+                      <p className="text-sm font-bold text-[#9a3412]">
                         You have reached the 10-question limit for this scan.
                       </p>
                     ) : (
-                      <p className="text-xs font-bold uppercase tracking-wide text-[#d1fae5]">
-                        Chat history is sent with each follow-up for this latest scan
+                      <p className="text-xs font-bold uppercase text-[#6b7a6e]">
+                        Enter sends, Shift+Enter adds a new line
                       </p>
                     )}
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold text-[#d1fae5]">
+                      <span className="text-xs font-bold text-[#6b7a6e]">
                         {chatInput.length}/1500
                       </span>
                       <button
@@ -784,9 +914,9 @@ function ScanPage() {
                           isSendingChat ||
                           hasReachedChatLimit
                         }
-                        className="w-full cursor-pointer rounded-md bg-[#bef264] px-4 py-3 text-sm font-black text-[#16351f] transition hover:bg-[#a3e635] sm:w-auto disabled:cursor-not-allowed disabled:bg-[#b2c0b6]"
+                        className="w-full cursor-pointer rounded-md bg-[#16351f] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#14532d] sm:w-auto disabled:cursor-not-allowed disabled:bg-[#b2c0b6] disabled:hover:translate-y-0"
                       >
-                        {isSendingChat ? 'Sending...' : 'Send question'}
+                        {isSendingChat ? 'Sending...' : 'Send'}
                       </button>
                     </div>
                   </div>

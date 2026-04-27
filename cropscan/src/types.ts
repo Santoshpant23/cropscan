@@ -25,8 +25,19 @@ export type RecommendationDetails = {
   overview: string
   immediateSteps: string[]
   productCategories: string[]
+  productRecommendations?: ProductRecommendation[]
   cautions: string[]
   followUp: string
+}
+
+export type ProductRecommendation = {
+  title: string
+  category: string
+  priority: 'essential' | 'helpful' | 'monitoring'
+  useCase: string
+  timing: string
+  buyerNote: string
+  caution: string
 }
 
 export type AnalysisRecord = {
