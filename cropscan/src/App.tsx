@@ -15,12 +15,16 @@ const Dashboard = lazy(() => import('./components/Dashboard'))
 const Profile = lazy(() => import('./components/Profile'))
 
 function SkeletonBlock({ className }: { className: string }) {
-  return <div className={`animate-pulse rounded-md bg-[#dceee2] ${className}`} />
+  return (
+    <div
+      className={`animate-pulse rounded-md bg-gradient-to-r from-[#dceee2] via-white to-[#dceee2] ${className}`}
+    />
+  )
 }
 
 function RouteLoader() {
   return (
-    <div className="mx-auto min-h-[calc(100vh-153px)] max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+    <div className="crop-fade-up mx-auto min-h-[calc(100vh-153px)] max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
         <div className="rounded-lg border border-[#14532d]/10 bg-white p-5 shadow-sm sm:p-6">
           <SkeletonBlock className="h-4 w-28" />

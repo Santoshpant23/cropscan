@@ -66,6 +66,130 @@ def _product_categories_for(disease: str, status: str) -> list[str]:
     return ["clean pruning shears", "protective gloves", "sprayer"]
 
 
+def _product_recommendations_for(
+    *,
+    crop: str,
+    disease: str,
+    status: str,
+) -> list[dict]:
+    if status == "Review needed":
+        return []
+
+    lowered = disease.lower()
+    if disease == "Healthy":
+        return [
+            {
+                "title": "Clean pruning kit",
+                "category": "Sanitation",
+                "priority": "helpful",
+                "useCase": "Keep tools clean between plants and reduce preventable spread during routine pruning.",
+                "timing": "Use during every inspection or pruning session.",
+                "buyerNote": "A basic bypass pruner plus tool disinfectant is enough for most small gardens.",
+                "caution": "Disinfect between plants instead of only at the end of the work session.",
+            },
+            {
+                "title": "Balanced plant nutrition",
+                "category": "Plant care",
+                "priority": "monitoring",
+                "useCase": f"Support steady {crop.lower()} growth when no disease is currently detected.",
+                "timing": "Use only when soil or plant condition suggests a need.",
+                "buyerNote": "Choose a general vegetable or fruit fertilizer that matches the crop label.",
+                "caution": "Avoid over-fertilizing; stressed growth can make plants easier to damage.",
+            },
+        ]
+
+    if "mite" in lowered:
+        return [
+            {
+                "title": "Hand lens",
+                "category": "Monitoring",
+                "priority": "essential",
+                "useCase": "Check leaf undersides for mites, eggs, and webbing before treatment.",
+                "timing": "Use before spraying and again three to five days later.",
+                "buyerNote": "A low-cost 10x hand lens is enough for field checks.",
+                "caution": "Do not treat for mites until you confirm activity on the leaf underside.",
+            },
+            {
+                "title": "Insecticidal soap",
+                "category": "Soft insect control",
+                "priority": "helpful",
+                "useCase": "Target light mite pressure with a low-residue contact treatment.",
+                "timing": "Apply only when mites are present and the label fits the crop.",
+                "buyerNote": "Look for products labeled for edible crops if the plant is food-bearing.",
+                "caution": "Test a small area first; soaps can burn leaves in heat or strong sun.",
+            },
+        ]
+
+    if "virus" in lowered or "greening" in lowered:
+        return [
+            {
+                "title": "Tool disinfectant",
+                "category": "Sanitation",
+                "priority": "essential",
+                "useCase": "Reduce mechanical spread while removing or handling suspicious plants.",
+                "timing": "Use immediately before and after handling affected plants.",
+                "buyerNote": "Prioritize disinfectants labeled for garden tools and hard surfaces.",
+                "caution": "Disinfection helps with spread, but it does not cure infected plants.",
+            },
+            {
+                "title": "Sticky monitoring traps",
+                "category": "Vector monitoring",
+                "priority": "monitoring",
+                "useCase": "Track insects that can move viral diseases between plants.",
+                "timing": "Place near the crop and check regularly during warm weather.",
+                "buyerNote": "Yellow sticky cards are common for whitefly and aphid monitoring.",
+                "caution": "Use traps as monitoring support, not as the only control method.",
+            },
+        ]
+
+    if any(
+        keyword in lowered
+        for keyword in ["rust", "spot", "blight", "mildew", "rot", "mold", "scab"]
+    ):
+        primary_category = "Fungicide" if "bacterial" not in lowered else "Bactericide"
+        return [
+            {
+                "title": f"Labeled {primary_category.lower()}",
+                "category": primary_category,
+                "priority": "helpful",
+                "useCase": f"Consider treatment if {disease.lower()} continues spreading after sanitation and airflow improvements.",
+                "timing": "Use after confirming the label matches the crop, disease, and harvest window.",
+                "buyerNote": "Compare active ingredient, crop label, re-entry interval, and pre-harvest interval.",
+                "caution": "Do not spray broadly from one scan alone; follow local label and extension guidance.",
+            },
+            {
+                "title": "Pump sprayer",
+                "category": "Application tool",
+                "priority": "helpful",
+                "useCase": "Apply labeled treatments evenly when treatment is justified.",
+                "timing": "Use only after reading the product label and mixing instructions.",
+                "buyerNote": "A small hand sprayer is enough for backyard plots; larger plots need better capacity.",
+                "caution": "Keep sprayers labeled and avoid mixing herbicide and crop-treatment equipment.",
+            },
+            {
+                "title": "Pruning shears",
+                "category": "Sanitation",
+                "priority": "essential",
+                "useCase": "Remove badly affected leaves or stems when appropriate for the crop.",
+                "timing": "Use during dry conditions when plant tissue is easier to handle cleanly.",
+                "buyerNote": "Choose shears that can be cleaned easily between plants.",
+                "caution": "Removing too much foliage can stress the plant; prune conservatively.",
+            },
+        ]
+
+    return [
+        {
+            "title": "Protective gloves",
+            "category": "Handling",
+            "priority": "helpful",
+            "useCase": "Handle affected leaves while reducing plant-to-plant contamination.",
+            "timing": "Use when inspecting, pruning, or removing affected tissue.",
+            "buyerNote": "Reusable washable gloves are fine for most garden checks.",
+            "caution": "Wash or change gloves before touching healthy plants.",
+        }
+    ]
+
+
 def _fallback_details(
     *,
     crop: str,
@@ -88,6 +212,7 @@ def _fallback_details(
                 "Keep watching nearby leaves for similar changes before treating broadly.",
             ],
             "productCategories": [],
+            "productRecommendations": [],
             "cautions": [
                 "Avoid spraying treatments based only on a low-confidence scan.",
                 "A poor photo or mixed background can lower reliability.",
@@ -111,6 +236,11 @@ def _fallback_details(
             "Improve airflow and reduce leaf wetness where possible.",
         ],
         "productCategories": _product_categories_for(disease, status),
+        "productRecommendations": _product_recommendations_for(
+            crop=crop,
+            disease=disease,
+            status=status,
+        ),
         "cautions": [
             "Use only products labeled for this crop and issue in your area.",
             "Confirm local guidance before broad treatment if symptoms spread quickly.",
