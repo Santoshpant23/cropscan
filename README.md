@@ -1,74 +1,80 @@
 # CropScan
 
-CropScan is a web application for crop disease diagnosis from a leaf image. A user signs in, uploads a photo, and receives predictions from two trained image classification models:
+CropScan is a full-stack crop disease diagnosis app. A user signs in, uploads or captures a leaf photo, receives predictions from two PyTorch image classifiers, reviews AI-generated treatment guidance, and can ask follow-up questions about the diagnosis.
 
-- EfficientNet-B0
-- MobileNetV2
+The app is built for smallholder farmers, backyard growers, and agricultural extension-style field work.
 
-The application includes:
+## Features
 
-- account creation and login
-- protected image upload
-- dual-model prediction results
-- AI-generated treatment recommendations
-- diagnosis follow-up chat
-- saved scan history
-- basic profile management
+- Account signup, login, profile editing, and protected routes
+- Leaf image upload and browser camera capture
+- Dual-model prediction with EfficientNet-B0 and MobileNetV2
+- 38 PlantVillage disease and healthy classes
+- Low-confidence fallback behavior
+- Image suitability check before disease inference
+- Gemini-backed recommendation summary
+- Diagnosis follow-up chat with a 10-question limit per scan
+- Product-category and supply-plan recommendations
+- Saved scan history and field notes
+- Docker setup for one-command local runs
+- Vercel frontend and Render backend deployment path
 
-The frontend is built with React and Vite. The backend is built with FastAPI, MongoDB, JWT authentication, and PyTorch.
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Frontend | React, TypeScript, Vite, Tailwind CSS, React Router |
+| Backend | FastAPI, Pydantic, PyMongo, JWT auth |
+| AI / ML | PyTorch, torchvision, EfficientNet-B0, MobileNetV2, Gemini |
+| Database | MongoDB Atlas or any MongoDB-compatible database |
+| Local containers | Docker Compose |
+| Deployment | Vercel frontend, Render backend |
 
 ## Repository Structure
 
 ```text
-backend/    FastAPI API, authentication, model loading, prediction logic
+backend/    FastAPI API, auth, MongoDB access, model loading, prediction, Gemini
 cropscan/   React frontend
-notebooks/  training and experimentation notebooks
+notebooks/  model training and experimentation notebooks
 ```
 
-## What You Need Before Running
+## Required Accounts And Files
 
-Install these tools first:
+You need:
 
-- Python 3.11
-- Node.js 18+ and npm
-- Access to a MongoDB database
-- Docker Desktop or Docker Engine if you want the one-command container setup
+- MongoDB connection string
+- JWT secret
+- Gemini API key if you want AI recommendations and chat
+- model files in `backend/models`
 
-Why Python 3.11 matters:
-
-The backend depends on PyTorch and torchvision. Those packages are more predictable when the whole team uses the same Python version. Use Python 3.11 for the backend setup.
-
-## Required Files Already in This Repo
-
-The backend prediction flow expects these model files:
+Required model files:
 
 ```text
 backend/models/efficientnet_b0_cropscan.pth
 backend/models/mobilenetv2_cropscan.pth
 ```
 
-If those files are missing, the upload endpoint will fail when it tries to load the models.
+If the model files are missing, the upload endpoint will fail when it tries to load the classifiers.
 
-## Environment Variables
+## Environment Files
 
-Use local `.env` files, not global system environment variables.
+Use local `.env` files. Do not commit real secrets.
 
-That means:
+Create:
 
-- create `backend/.env`
-- create `cropscan/.env`
-
-Do not commit those real `.env` files. The repo already includes `.env.example` templates for both apps.
-
-### Backend Environment Variables
-
-Copy:
-
-```powershell
-Copy-Item backend\.env.example backend\.env
+```text
+backend/.env
+cropscan/.env
 ```
 
-Then edit `backend/.env`:
+The repo includes:
+
+```text
+backend/.env.example
+cropscan/.env.example
+```
+
+### Backend `.env`
 
 ```env
 MONGODB_URL=mongodb+srv://<username>:<password>@cluster.mongodb.net/cropscan
@@ -77,84 +83,81 @@ JWT_SECRET_KEY=replace-with-a-long-random-secret
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+CORS_ORIGIN_REGEX=^https?://(localhost|127\.0\.0\.1)(:\d+)?$
 MODEL_DIR=models
 GEMINI_API_KEY=replace-with-your-gemini-api-key
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
-What each one does:
+For deployed production on Render, set:
 
-- `MONGODB_URL`: MongoDB connection string
-- `MONGODB_DB_NAME`: database name
-- `JWT_SECRET_KEY`: secret used to sign login tokens
-- `JWT_ALGORITHM`: JWT algorithm, currently `HS256`
-- `ACCESS_TOKEN_EXPIRE_MINUTES`: token expiry window
-- `CORS_ORIGINS`: frontend origins allowed to call the backend
-- `MODEL_DIR`: folder containing the saved `.pth` model files
-- `GEMINI_API_KEY`: key used for AI-generated recommendations and diagnosis chat
-- `GEMINI_MODEL`: Gemini model name used by the backend
-
-### Frontend Environment Variables
-
-Copy:
-
-```powershell
-Copy-Item cropscan\.env.example cropscan\.env
+```env
+CORS_ORIGINS=https://cropscan.tech,https://www.cropscan.tech
 ```
 
-Then edit `cropscan/.env` if needed:
+### Frontend `.env`
+
+For normal local development:
 
 ```env
 VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
 ```
 
-Use the default value if the backend is running locally on port `8000`.
+For Vercel production:
 
-## Docker Quick Start
+```env
+VITE_API_BASE_URL=/api/v1
+```
 
-If you want the simplest team setup, use Docker. The containers are pinned to the
-same backend Python line you are using locally: Python `3.11.9`.
+Vercel uses `cropscan/vercel.json` to proxy `/api/v1/*` to the Render backend.
 
-### 1. Create the backend env file
+## Fastest Local Setup With Docker
+
+This is the easiest path for teammates and demo reviewers.
+
+### Windows PowerShell
 
 ```powershell
 Copy-Item backend\.env.example backend\.env
-```
-
-Then edit `backend/.env` with your real MongoDB, JWT, and Gemini values.
-
-### 2. Start the full app
-
-From the project root:
-
-```powershell
+Copy-Item cropscan\.env.example cropscan\.env
 docker compose up --build
 ```
 
-That starts:
+### macOS / Linux
 
-- frontend at `http://localhost:5173`
-- backend at `http://localhost:8000`
-- backend docs at `http://localhost:8000/docs`
+```bash
+cp backend/.env.example backend/.env
+cp cropscan/.env.example cropscan/.env
+docker compose up --build
+```
 
-### 3. Stop the app
+Then open:
 
-```powershell
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+- Backend docs: `http://localhost:8000/docs`
+
+Stop containers:
+
+```bash
 docker compose down
 ```
 
-## Step-by-Step Setup
+Docker still requires valid values in `backend/.env`.
 
-### 1. Clone the Repository
+## Manual Local Setup
 
-```bash
-git clone <your-repo-url>
-cd <repo-folder>
-```
+Use this path if you are developing without Docker.
 
-### 2. Set Up the Backend
+### Prerequisites
 
-Open a terminal in the project root, then run:
+- Python 3.11
+- Node.js 18+ and npm
+- MongoDB connection string
+
+Python 3.11 is important because the backend uses PyTorch and torchvision.
+
+## Backend Setup
 
 ### Windows PowerShell
 
@@ -165,23 +168,12 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
-```
-
-Then edit `backend/.env` with your real values.
-
-Start the backend:
-
-```powershell
 uvicorn app.main:app --reload
 ```
 
-Backend URLs:
+### macOS
 
-- API base: `http://127.0.0.1:8000`
-- Docs: `http://127.0.0.1:8000/docs`
-- Health check: `http://127.0.0.1:8000/health`
-
-### Mac/Linux
+If `python3.11` is installed:
 
 ```bash
 cd backend
@@ -190,17 +182,45 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 cp .env.example .env
-```
-
-Then edit `backend/.env` and run:
-
-```bash
 uvicorn app.main:app --reload
 ```
 
-### 3. Set Up the Frontend
+If you use Homebrew:
 
-Open a second terminal in the project root, then run:
+```bash
+brew install python@3.11
+```
+
+Then rerun the setup above.
+
+### Linux
+
+```bash
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --reload
+```
+
+On Ubuntu/Debian, if Python 3.11 venv support is missing:
+
+```bash
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3.11-dev
+```
+
+Backend URLs:
+
+- API root: `http://127.0.0.1:8000`
+- Docs: `http://127.0.0.1:8000/docs`
+- Health: `http://127.0.0.1:8000/health`
+
+## Frontend Setup
+
+Open a second terminal from the project root.
 
 ### Windows PowerShell
 
@@ -211,7 +231,7 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-### Mac/Linux
+### macOS / Linux
 
 ```bash
 cd cropscan
@@ -222,56 +242,62 @@ npm run dev
 
 Frontend URL:
 
-- `http://127.0.0.1:5173`
+```text
+http://127.0.0.1:5173
+```
 
-### 4. Use the App
+If Vite chooses another port, add that origin to `backend/.env` under `CORS_ORIGINS` or rely on the existing local CORS regex.
 
-Once both servers are running:
+## Using The App Locally
 
-1. Open the frontend in the browser.
-2. Create an account.
-3. Log in.
-4. Go to the scan page.
-5. Upload a leaf image.
-6. Review the prediction result from both models.
-7. Review the AI-generated recommendation and ask follow-up questions in the diagnosis chat.
-8. Check the dashboard to see saved scan history.
+1. Start the backend.
+2. Start the frontend.
+3. Open the frontend URL.
+4. Create an account or log in.
+5. Go to the scan page.
+6. Upload a leaf image or use camera capture.
+7. Review both model predictions.
+8. Review the recommendation and supply plan.
+9. Ask follow-up questions in chat.
+10. Open the dashboard to review saved history.
 
 ## API Summary
 
-Main backend routes:
+Main routes:
 
+- `GET /health`
 - `POST /api/v1/auth/signup`
 - `POST /api/v1/auth/login`
 - `GET /api/v1/auth/me`
 - `PATCH /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
+- `POST /api/v1/auth/forgot-password`
 - `POST /api/v1/upload`
 - `POST /api/v1/chat`
 - `POST /upload`
-- `GET /health`
+- `POST /chat`
 
-The upload endpoint is protected. You must be logged in and send the bearer token.
+Protected routes require:
 
-## Development Notes
+```text
+Authorization: Bearer <token>
+```
 
-- The frontend uses local route-level lazy loading for page chunks.
-- Scan history is currently stored in browser local storage on the frontend.
-- Authentication and user profile data are backed by MongoDB through the FastAPI API.
-- The backend loads the saved PyTorch models directly from `backend/models`.
-- AI recommendations and diagnosis chat use Gemini through the backend when `GEMINI_API_KEY` is set. The backend falls back to deterministic guidance if the Gemini call fails.
+Note: the forgot-password route is currently not exposed in the login UI because the reset flow still needs a secure OTP or signed-token implementation.
 
-## Quick Verification Commands
+## Verification Commands
 
 ### Frontend
 
-```powershell
+```bash
 cd cropscan
 npm run lint
 npm run build
 ```
 
 ### Backend
+
+Windows PowerShell:
 
 ```powershell
 cd backend
@@ -280,66 +306,123 @@ python -m pytest tests
 python -m compileall app
 ```
 
+macOS / Linux:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m pytest tests
+python -m compileall app
+```
+
 ### Docker
 
-```powershell
+```bash
 docker compose build
 docker compose up
 ```
 
+## Deployment
+
+Production is split across Vercel and Render:
+
+- Frontend: Vercel
+- Backend: Render
+- Database: MongoDB Atlas
+- Domain: `cropscan.tech`
+
+### Render Backend
+
+Create a Render Web Service from the repo.
+
+Use:
+
+```text
+Root Directory: backend
+Environment: Docker
+Branch: master
+Health Check Path: /health
+```
+
+Set backend environment variables in the Render dashboard, not in Git.
+
+Production CORS:
+
+```env
+CORS_ORIGINS=https://cropscan.tech,https://www.cropscan.tech
+```
+
+### Vercel Frontend
+
+Create a Vercel project from the same repo.
+
+Use:
+
+```text
+Root Directory: cropscan
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
+Production Branch: master
+```
+
+Set:
+
+```env
+VITE_API_BASE_URL=/api/v1
+```
+
+The file `cropscan/vercel.json` forwards `/api/v1/*` requests to the Render backend and sends client-side routes back to the React app.
+
+### DNS
+
+Point `cropscan.tech` and `www.cropscan.tech` to Vercel using the records shown in the Vercel dashboard. Use Vercel's displayed DNS values because they are the source of truth for the project.
+
 ## Common Problems
 
-### 1. `py -3.11` is not found
+### `py -3.11` or `python3.11` is not found
 
-Install Python 3.11, then rerun the backend setup.
+Install Python 3.11 and recreate the backend virtual environment.
 
-### 2. Upload fails because model files are missing
+### Upload fails when models load
 
-Make sure these files exist:
+Confirm both model files exist in `backend/models`.
 
-```text
-backend/models/efficientnet_b0_cropscan.pth
-backend/models/mobilenetv2_cropscan.pth
+### Frontend cannot reach backend locally
+
+Check:
+
+- backend is running
+- frontend `.env` uses `http://127.0.0.1:8000/api/v1`
+- backend `.env` includes the frontend origin or local CORS regex
+- backend was restarted after `.env` changes
+
+### Production CORS error
+
+Check Render:
+
+```env
+CORS_ORIGINS=https://cropscan.tech,https://www.cropscan.tech
 ```
 
-### 3. Frontend cannot reach backend
+Check Vercel:
 
-Check:
-
-- backend is running on port `8000`
-- `cropscan/.env` points to `http://127.0.0.1:8000/api/v1`
-- `backend/.env` includes the frontend origin in `CORS_ORIGINS`
-
-### 4. Authentication fails
-
-Check:
-
-- `MONGODB_URL` is correct
-- `JWT_SECRET_KEY` is set
-- backend server restarted after `.env` changes
-
-### 5. Docker build fails or containers cannot start
-
-Check:
-
-- Docker Desktop is running
-- `backend/.env` exists and has real values
-- the model files still exist in `backend/models`
-- ports `5173` and `8000` are not already in use
-
-## Team Workflow Suggestion
-
-Use feature branches for active work and merge into `develop` after verification. Keep `main` for the stable version only.
-
-Typical flow:
-
-```text
-feature branch -> develop -> main
+```env
+VITE_API_BASE_URL=/api/v1
 ```
 
-## Current Stack
+Then redeploy both services.
 
-- Frontend: React, TypeScript, Vite, Tailwind CSS, React Router
-- Backend: FastAPI, PyMongo, JWT, Pydantic Settings
-- ML: PyTorch, torchvision, EfficientNet-B0, MobileNetV2
-- Database: MongoDB
+### Render is slow on first request
+
+Free Render services can sleep after inactivity. The first request may take longer while the service wakes and loads the PyTorch models.
+
+## Team Workflow
+
+Use feature branches for active work, merge into `develop` after verification, then promote to `master` for deployment.
+
+```text
+feature branch -> develop -> master
+```
+
+Run frontend and backend checks before merging into `master`.
