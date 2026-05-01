@@ -1,15 +1,19 @@
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 
+from .config import get_settings
+
+settings = get_settings()
+
 conf = ConnectionConfig(
-    MAIL_USERNAME="cropscan.tech@gmail.com",
-    MAIL_PASSWORD="cqgeneoxfsothpcj", 
-    MAIL_FROM="cropscan.tech@gmail.com",
-    MAIL_PORT=587,
-    MAIL_SERVER="smtp.gmail.com",
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True
+    MAIL_USERNAME=settings.mail_username,
+    MAIL_PASSWORD=settings.mail_password,
+    MAIL_FROM=settings.mail_from,
+    MAIL_PORT=settings.mail_port,
+    MAIL_SERVER=settings.mail_server,
+    MAIL_STARTTLS=settings.mail_starttls,
+    MAIL_SSL_TLS=settings.mail_ssl_tls,
+    USE_CREDENTIALS=settings.mail_use_credentials,
+    VALIDATE_CERTS=settings.mail_validate_certs,
 )
 
 async def send_verification_email(email_address: str, code: str):

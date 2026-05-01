@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     model_dir: str = Field("models", alias="MODEL_DIR")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_model: str = Field("gemini-2.5-flash", alias="GEMINI_MODEL")
+    mail_username: str = Field("", alias="MAIL_USERNAME")
+    mail_password: str = Field("", alias="MAIL_PASSWORD")
+    mail_from: str = Field("cropscan.tech@gmail.com", alias="MAIL_FROM")
+    mail_port: int = Field(587, alias="MAIL_PORT")
+    mail_server: str = Field("smtp.gmail.com", alias="MAIL_SERVER")
+    mail_starttls: bool = Field(True, alias="MAIL_STARTTLS")
+    mail_ssl_tls: bool = Field(False, alias="MAIL_SSL_TLS")
+    mail_use_credentials: bool = Field(True, alias="MAIL_USE_CREDENTIALS")
+    mail_validate_certs: bool = Field(True, alias="MAIL_VALIDATE_CERTS")
     skip_db_init: bool = Field(False, alias="SKIP_DB_INIT")
 
     model_config = SettingsConfigDict(
