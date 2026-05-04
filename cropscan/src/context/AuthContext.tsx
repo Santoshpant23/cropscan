@@ -3,7 +3,6 @@ import { useState } from 'react'
 import {
   AUTH_TOKEN_KEY,
   AUTH_USER_KEY,
-  migrateUserAnalysesEmail,
   readStoredUser,
 } from '../lib/storage'
 import {
@@ -44,9 +43,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function updateProfile(profile: UserProfile) {
     if (!token) return
     const updatedProfile = await updateProfileRequest(profile, token)
-    if (user?.email && user.email !== updatedProfile.email) {
-      migrateUserAnalysesEmail(user.email, updatedProfile.email)
-    }
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedProfile))
     setUser(updatedProfile)
   }

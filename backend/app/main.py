@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.database import ensure_indexes
 from app.routes import router as auth_router
+from app.scan_routes import router as scan_router
 from app.upload_routes import router as upload_router
 
 settings = get_settings()
@@ -37,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(scan_router, prefix=settings.api_prefix)
 app.include_router(upload_router, prefix=settings.api_prefix)
 app.include_router(upload_router)
 

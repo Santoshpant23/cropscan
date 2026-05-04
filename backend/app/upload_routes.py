@@ -1,8 +1,11 @@
 import logging
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pymongo.collection import Collection
 
 from app.ai_service import generate_chat_reply
+from app.database import get_scans_collection_dependency
 from app.dependencies import get_current_user
 from app.models import DiagnosisChatRequest, DiagnosisChatResponse
 
@@ -13,7 +16,8 @@ logger = logging.getLogger(__name__)
 @router.post("/upload")
 async def upload_leaf_image(
     file: UploadFile = File(...),
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
+    scans_collection: Collection = Depends(get_scans_collection_dependency),
 ) -> dict:
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
@@ -31,7 +35,21 @@ async def upload_leaf_image(
     try:
         from app.inference import predict_leaf_image
 
-        return predict_leaf_image(image_bytes, file.filename or "leaf-image")
+        result = predict_leaf_image(image_bytes, file.filename or "leaf-image")
+        scan_document = {
+            "user_id": current_user["_id"],
+            "timestamp": datetime.now(UTC),
+            "image_filename": result["fileName"],
+            "predictions": result["predictions"],
+            "recommendation": result["recommendation"],
+            "recommendation_details": result.get("recommendationDetails"),
+            "disease_label": result["condition"],
+            "crop_type": result["cropType"],
+            "confidence_percent": result["confidencePercent"],
+            "status": result["status"],
+        }
+        insert_result = scans_collection.insert_one(scan_document)
+        return {**result, "scanId": str(insert_result.inserted_id)}
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -52,3 +52,19 @@ class UserResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class ScanResponse(BaseModel):
+    id: str = Field(alias="_id")
+    user_id: str
+    timestamp: datetime
+    image_filename: str
+    predictions: list[dict]
+    recommendation: str
+    recommendation_details: dict | None = None
+    disease_label: str
+    crop_type: str | None = None
+    confidence_percent: float | None = None
+    status: Literal["High confidence", "Review needed"] = "Review needed"
+
+    model_config = ConfigDict(populate_by_name=True)

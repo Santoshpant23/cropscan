@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { diagnosisChatRequest, uploadLeafRequest } from '../lib/api'
-import { saveAnalysis } from '../lib/storage'
 import type {
   AnalysisRecord,
   DiagnosisChatMessage,
@@ -37,7 +36,7 @@ function buildAnalysisRecordFromResponse(
   userEmail: string,
 ): AnalysisRecord {
   return {
-    id: crypto.randomUUID(),
+    id: response.scanId || crypto.randomUUID(),
     userEmail,
     createdAt: new Date().toISOString(),
     fileName,
@@ -281,7 +280,6 @@ function ScanPage() {
         imageDataUrl,
         user.email,
       )
-      saveAnalysis(record)
       setLatestRecord(record)
       setChatMessages([
         {

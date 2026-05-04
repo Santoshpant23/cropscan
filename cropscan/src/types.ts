@@ -45,6 +45,34 @@ export type AnalysisRecord = {
   predictions: ModelPrediction[]
 }
 
+export type ScanResponse = {
+  id: string
+  user_id: string
+  timestamp: string
+  image_filename: string
+  predictions: Array<{
+    modelName: 'EfficientNet-B0' | 'MobileNetV2'
+    crop: string
+    disease: string
+    className?: string
+    confidence: number
+    confidencePercent?: number
+    topK?: Array<{
+      className: string
+      crop: string
+      disease: string
+      confidence: number
+      confidencePercent?: number
+    }>
+  }>
+  recommendation: string
+  recommendation_details?: RecommendationDetails
+  disease_label: string
+  crop_type?: string
+  confidence_percent?: number
+  status: 'High confidence' | 'Review needed'
+}
+
 export type AuthUserResponse = {
   id: string
   full_name: string
@@ -54,6 +82,7 @@ export type AuthUserResponse = {
 }
 
 export type UploadResponse = {
+  scanId?: string
   fileName: string
   cropType: string
   condition: string

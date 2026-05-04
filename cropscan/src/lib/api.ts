@@ -1,7 +1,9 @@
 import type {
+  AnalysisRecord,
   AuthUserResponse,
   DiagnosisChatRequest,
   DiagnosisChatResponse,
+  ScanResponse,
   UploadResponse,
   UserProfile,
 } from '../types'
@@ -21,6 +23,40 @@ function toUserProfile(user: AuthUserResponse): UserProfile {
     email: user.email,
     role: user.role || 'Smallholder farmer',
     location: user.location || 'Knox County, TN',
+  }
+}
+
+function toAnalysisRecord(scan: ScanResponse): AnalysisRecord {
+  const predictions = scan.predictions.map((prediction) => ({
+    modelName: prediction.modelName,
+    crop: prediction.crop,
+    disease: prediction.disease,
+    className: prediction.className,
+    confidence: Math.round(prediction.confidencePercent ?? prediction.confidence * 100),
+    topK: prediction.topK?.map((topPrediction) => ({
+      className: topPrediction.className,
+      crop: topPrediction.crop,
+      disease: topPrediction.disease,
+      confidence: Math.round(
+        topPrediction.confidencePercent ?? topPrediction.confidence * 100,
+      ),
+    })),
+  }))
+
+  return {
+    id: scan.id,
+    userEmail: '',
+    createdAt: scan.timestamp,
+    fileName: scan.image_filename,
+    imageDataUrl: '',
+    cropType: scan.crop_type,
+    condition: scan.disease_label,
+    confidencePercent: scan.confidence_percent,
+    status: scan.status,
+    recommendation: scan.recommendation,
+    recommendationDetails: scan.recommendation_details,
+    notes: '',
+    predictions,
   }
 }
 
@@ -159,6 +195,21 @@ export async function uploadLeafRequest(file: File, token: string) {
     body: formData,
   })
   return parseResponse<UploadResponse>(response)
+}
+
+export async function getScansRequest(token: string) {
+  const scans = await requestJson<ScanResponse[]>('/scans', {
+    method: 'GET',
+    token,
+  })
+  return scans.map(toAnalysisRecord)
+}
+
+export async function deleteScanRequest(scanId: string, token: string) {
+  return requestJson<void>(`/scans/${scanId}`, {
+    method: 'DELETE',
+    token,
+  })
 }
 
 export async function diagnosisChatRequest(

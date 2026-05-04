@@ -26,9 +26,18 @@ def get_users_collection() -> Collection:
     return get_database()["users"]
 
 
+def get_scans_collection() -> Collection:
+    return get_database()["scans"]
+
+
 def get_users_collection_dependency() -> Generator[Collection, None, None]:
     yield get_users_collection()
 
 
+def get_scans_collection_dependency() -> Generator[Collection, None, None]:
+    yield get_scans_collection()
+
+
 def ensure_indexes() -> None:
     get_users_collection().create_index("email", unique=True)
+    get_scans_collection().create_index([("user_id", 1), ("timestamp", -1)])

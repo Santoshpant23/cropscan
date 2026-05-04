@@ -1,12 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
-import {
-  clearUserAnalyses,
-  deleteAnalysis,
-  getUserAnalyses,
-  updateAnalysisNotes,
-} from '../lib/storage'
+import { deleteScanRequest, getScansRequest } from '../lib/api'
 import type { AnalysisRecord } from '../types'
 
 function formatDate(value: string) {
@@ -19,13 +14,41 @@ function formatDate(value: string) {
 }
 
 function Dashboard() {
-  const { user } = useAuth()
-  const [records, setRecords] = useState<AnalysisRecord[]>(() =>
-    user ? getUserAnalyses(user.email) : [],
-  )
-  const [draftNotes, setDraftNotes] = useState<Record<string, string>>(() =>
-    Object.fromEntries(records.map((record) => [record.id, record.notes])),
-  )
+  const { token } = useAuth()
+  const [records, setRecords] = useState<AnalysisRecord[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!token) {
+      setIsLoading(false)
+      return
+    }
+
+    let isMounted = true
+    setIsLoading(true)
+    setError('')
+
+    getScansRequest(token)
+      .then((scans) => {
+        if (isMounted) setRecords(scans)
+      })
+      .catch((caughtError) => {
+        if (!isMounted) return
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : 'Could not load scan history.',
+        )
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [token])
 
   const stats = useMemo(() => {
     const confidenceValues = records.flatMap((record) =>
@@ -47,24 +70,24 @@ function Dashboard() {
     }
   }, [records])
 
-  function handleDelete(id: string) {
-    deleteAnalysis(id)
-    setRecords((currentRecords) => currentRecords.filter((record) => record.id !== id))
+  async function handleDelete(id: string) {
+    if (!token) return
+    try {
+      await deleteScanRequest(id, token)
+      setRecords((currentRecords) => currentRecords.filter((record) => record.id !== id))
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Could not delete scan.')
+    }
   }
 
-  function handleClear() {
-    if (!user) return
-    clearUserAnalyses(user.email)
-    setRecords([])
-    setDraftNotes({})
-  }
-
-  function handleSaveNote(id: string) {
-    const notes = draftNotes[id] ?? ''
-    updateAnalysisNotes(id, notes)
-    setRecords((currentRecords) =>
-      currentRecords.map((record) => (record.id === id ? { ...record, notes } : record)),
-    )
+  async function handleClear() {
+    if (!token) return
+    try {
+      await Promise.all(records.map((record) => deleteScanRequest(record.id, token)))
+      setRecords([])
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Could not clear scans.')
+    }
   }
 
   return (
@@ -74,8 +97,8 @@ function Dashboard() {
           <p className="text-sm font-bold uppercase text-[#15803d]">Saved analyses</p>
           <h1 className="mt-2 text-3xl font-black text-[#16351f]">Dashboard</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#4b5d50]">
-            Review past scans, compare model confidence, add notes, and remove
-            records as the field history grows.
+            Review past scans, compare model confidence, and remove records as the
+            field history grows.
           </p>
         </div>
         <div className="flex gap-3">
@@ -87,8 +110,10 @@ function Dashboard() {
           </Link>
           <button
             type="button"
-            onClick={handleClear}
-            disabled={records.length === 0}
+            onClick={() => {
+              void handleClear()
+            }}
+            disabled={records.length === 0 || isLoading}
             className="cursor-pointer rounded-md border border-[#14532d]/15 bg-white px-4 py-2 text-sm font-bold text-[#16351f] transition hover:bg-[#f0fdf4] disabled:cursor-not-allowed disabled:text-[#a8b3aa]"
           >
             Clear all
@@ -109,7 +134,18 @@ function Dashboard() {
         ))}
       </div>
 
-      {records.length === 0 ? (
+      {error ? (
+        <div className="mt-6 rounded-lg border border-[#fecdd3] bg-[#fff1f2] p-5 text-sm font-bold text-[#be123c]">
+          {error}
+        </div>
+      ) : isLoading ? (
+        <div className="mt-6 rounded-lg border border-[#14532d]/10 bg-white p-8 text-[#16351f] shadow-sm">
+          <p className="text-2xl font-black">Loading scan history...</p>
+          <p className="mt-2 text-sm leading-6 text-[#4b5d50]">
+            Fetching saved scans for this account.
+          </p>
+        </div>
+      ) : records.length === 0 ? (
         <div className="mt-6 rounded-lg border border-[#14532d]/10 bg-[#16351f] p-8 text-white">
           <p className="text-2xl font-black">No scans saved yet</p>
           <p className="mt-2 max-w-xl text-sm leading-6 text-[#d1fae5]">
@@ -129,13 +165,16 @@ function Dashboard() {
               key={record.id}
               className="grid gap-5 rounded-lg border border-[#14532d]/10 bg-white p-4 shadow-sm lg:grid-cols-[220px_1fr]"
             >
-              <img
-                src={record.imageDataUrl}
-                alt={`${record.predictions[0].crop} leaf`}
-                loading="lazy"
-                decoding="async"
-                className="h-56 w-full rounded-md object-cover lg:h-full"
-              />
+              <div className="flex h-56 w-full items-center justify-center rounded-md bg-[#f0fdf4] p-4 text-center ring-1 ring-[#bbf7d0] lg:h-full">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wide text-[#15803d]">
+                    Uploaded image
+                  </p>
+                  <p className="mt-2 break-words text-sm font-bold text-[#16351f]">
+                    {record.fileName}
+                  </p>
+                </div>
+              </div>
 
               <div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -178,39 +217,12 @@ function Dashboard() {
                   {record.recommendation}
                 </p>
 
-                <div className="mt-4">
-                  <label
-                    htmlFor={`notes-${record.id}`}
-                    className="text-sm font-black text-[#16351f]"
-                  >
-                    Field note
-                  </label>
-                  <textarea
-                    id={`notes-${record.id}`}
-                    value={draftNotes[record.id] ?? ''}
-                    onChange={(event) =>
-                      setDraftNotes((currentNotes) => ({
-                        ...currentNotes,
-                        [record.id]: event.target.value,
-                      }))
-                    }
-                    rows={3}
-                    className="mt-2 w-full resize-none rounded-md border border-[#14532d]/15 bg-white px-3 py-2 text-sm text-[#16351f] outline-none transition focus:border-[#22c55e] focus:ring-4 focus:ring-[#bbf7d0]"
-                    placeholder="Add field conditions, treatment decision, or follow-up date"
-                  />
-                </div>
-
                 <div className="mt-3 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={() => handleSaveNote(record.id)}
-                    className="cursor-pointer rounded-md bg-[#16351f] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#166534]"
-                  >
-                    Save note
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(record.id)}
+                    onClick={() => {
+                      void handleDelete(record.id)
+                    }}
                     className="cursor-pointer rounded-md border border-[#fb7185]/40 bg-white px-4 py-2 text-sm font-bold text-[#be123c] transition hover:bg-[#fff1f2]"
                   >
                     Delete
