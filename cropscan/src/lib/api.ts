@@ -1,9 +1,17 @@
 import type {
   AuthUserResponse,
+  AnalysisRecord,
   DiagnosisChatRequest,
   DiagnosisChatResponse,
+  GeocodedLocation,
+  PlotTodayCard,
+  PlotRecord,
   UploadResponse,
   UserProfile,
+  WalkAnalyzeRequest,
+  WalkAnalyzeResponse,
+  WalkSummaryRequest,
+  WalkSummaryResponse,
 } from '../types'
 
 const API_BASE_URL = (
@@ -118,10 +126,28 @@ export async function signupRequest(profile: UserProfile, password: string) {
   return { token: tokenResponse.access_token, user }
 }
 
-export async function forgotPasswordRequest(email: string, newPassword: string) {
-  return requestJson<{ message: string }>('/auth/forgot-password', {
+export async function requestPasswordReset(email: string) {
+  return requestJson<{ message: string; debugOtp?: string }>(
+    '/auth/forgot-password/request',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    },
+  )
+}
+
+export async function confirmPasswordReset(
+  email: string,
+  otpCode: string,
+  newPassword: string,
+) {
+  return requestJson<{ message: string }>('/auth/forgot-password/confirm', {
     method: 'POST',
-    body: JSON.stringify({ email, new_password: newPassword }),
+    body: JSON.stringify({
+      email,
+      otp_code: otpCode,
+      new_password: newPassword,
+    }),
   })
 }
 
@@ -147,9 +173,10 @@ export async function updateProfileRequest(profile: UserProfile, token: string) 
   return toUserProfile(user)
 }
 
-export async function uploadLeafRequest(file: File, token: string) {
+export async function uploadLeafRequest(fileOrFiles: File | File[], token: string) {
   const formData = new FormData()
-  formData.append('file', file)
+  const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles]
+  files.forEach((file) => formData.append('files', file))
 
   const response = await fetch(`${API_BASE_URL}/upload`, {
     method: 'POST',
@@ -161,6 +188,99 @@ export async function uploadLeafRequest(file: File, token: string) {
   return parseResponse<UploadResponse>(response)
 }
 
+export async function getScansRequest(token: string) {
+  return requestJson<AnalysisRecord[]>('/scans', {
+    method: 'GET',
+    token,
+  })
+}
+
+export async function saveScanRequest(record: AnalysisRecord, token: string) {
+  return requestJson<AnalysisRecord>('/scans', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(record),
+  })
+}
+
+export async function geocodeAddressRequest(address: string, token: string) {
+  const query = new URLSearchParams({ address })
+  return requestJson<GeocodedLocation>(`/locations/geocode?${query.toString()}`, {
+    method: 'GET',
+    token,
+  })
+}
+
+export async function updateScanNotesRequest(
+  scanId: string,
+  notes: string,
+  token: string,
+) {
+  return requestJson<AnalysisRecord>(`/scans/${scanId}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ notes }),
+  })
+}
+
+export async function deleteScanRequest(scanId: string, token: string) {
+  await requestJson<null>(`/scans/${scanId}`, {
+    method: 'DELETE',
+    token,
+  })
+}
+
+export async function clearScansRequest(token: string) {
+  await requestJson<null>('/scans', {
+    method: 'DELETE',
+    token,
+  })
+}
+
+export async function getPlotsRequest(token: string) {
+  return requestJson<PlotRecord[]>('/plots', {
+    method: 'GET',
+    token,
+  })
+}
+
+export async function getPlotTodayRequest(plotId: string, token: string) {
+  return requestJson<PlotTodayCard>(`/plots/${plotId}/today`, {
+    method: 'GET',
+    token,
+  })
+}
+
+export async function createPlotRequest(
+  payload: Omit<PlotRecord, 'id' | 'userEmail' | 'createdAt' | 'updatedAt'>,
+  token: string,
+) {
+  return requestJson<PlotRecord>('/plots', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updatePlotRequest(
+  plotId: string,
+  payload: Partial<Omit<PlotRecord, 'id' | 'userEmail' | 'createdAt' | 'updatedAt'>>,
+  token: string,
+) {
+  return requestJson<PlotRecord>(`/plots/${plotId}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deletePlotRequest(plotId: string, token: string) {
+  await requestJson<null>(`/plots/${plotId}`, {
+    method: 'DELETE',
+    token,
+  })
+}
+
 export async function diagnosisChatRequest(
   payload: DiagnosisChatRequest,
   token: string,
@@ -170,4 +290,36 @@ export async function diagnosisChatRequest(
     token,
     body: JSON.stringify(payload),
   })
+}
+
+export async function walkAnalyzeRequest(
+  payload: WalkAnalyzeRequest,
+  token: string,
+) {
+  return requestJson<WalkAnalyzeResponse>('/walk-scan/analyze', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function walkSummaryRequest(
+  payload: WalkSummaryRequest,
+  token: string,
+) {
+  return requestJson<WalkSummaryResponse>('/walk-scan/summary', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function walkWarmupRequest(token: string) {
+  return requestJson<{ ready: boolean; coldStart: boolean; durationSeconds: number }>(
+    '/walk-scan/warmup',
+    {
+      method: 'POST',
+      token,
+    },
+  )
 }

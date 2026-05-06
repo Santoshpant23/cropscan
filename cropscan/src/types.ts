@@ -6,10 +6,18 @@ export type UserProfile = {
 }
 
 export type ModelPrediction = {
-  modelName: 'EfficientNet-B0' | 'MobileNetV2'
+  modelName: string
   crop: string
   disease: string
   confidence: number
+  confidenceMargin?: number
+  entropy?: number
+  temperature?: number
+  thresholds?: {
+    maxProbMin: number
+    marginMin: number
+    entropyMax: number
+  }
   className?: string
   topK?: Array<{
     className: string
@@ -43,17 +51,27 @@ export type ProductRecommendation = {
 export type AnalysisRecord = {
   id: string
   userEmail: string
+  predictionToken?: string
   createdAt: string
   fileName: string
   imageDataUrl: string
+  photoDataUrls?: string[]
+  photoCount?: number
+  plotId?: string
+  plotName?: string
+  scanLocationLabel?: string
   cropType?: string
   condition?: string
   confidencePercent?: number
   status: 'High confidence' | 'Review needed'
+  diagnosisState?: 'confident' | 'uncertain_need_more_photos' | 'out_of_scope'
+  diagnosisStateLabel?: string
+  diagnosisReason?: string
   recommendation: string
   recommendationDetails?: RecommendationDetails
   notes: string
   predictions: ModelPrediction[]
+  photoResults?: PhotoUploadResult[]
 }
 
 export type AuthUserResponse = {
@@ -64,22 +82,33 @@ export type AuthUserResponse = {
   location?: string
 }
 
-export type UploadResponse = {
+export type PhotoUploadResult = {
   fileName: string
   cropType: string
   condition: string
   confidenceScore: number
   confidencePercent: number
   status: 'High confidence' | 'Review needed'
+  diagnosisState?: 'confident' | 'uncertain_need_more_photos' | 'out_of_scope'
+  diagnosisStateLabel?: string
+  diagnosisReason?: string
   recommendation: string
   recommendationDetails: RecommendationDetails
   predictions: Array<{
-    modelName: 'EfficientNet-B0' | 'MobileNetV2'
+    modelName: string
     crop: string
     disease: string
     className: string
     confidence: number
     confidencePercent: number
+    confidenceMargin?: number
+    entropy?: number
+    temperature?: number
+    thresholds?: {
+      maxProbMin: number
+      marginMin: number
+      entropyMax: number
+    }
     topK: Array<{
       className: string
       crop: string
@@ -88,6 +117,13 @@ export type UploadResponse = {
       confidencePercent: number
     }>
   }>
+}
+
+export type UploadResponse = PhotoUploadResult & {
+  predictionToken: string
+  imageHashes: string[]
+  photoCount?: number
+  photoResults?: PhotoUploadResult[]
 }
 
 export type DiagnosisChatMessage = {
@@ -104,7 +140,7 @@ export type DiagnosisChatRequest = {
     recommendation: string
     recommendationDetails: RecommendationDetails
     predictions: Array<{
-      modelName: 'EfficientNet-B0' | 'MobileNetV2'
+      modelName: string
       crop: string
       disease: string
       className?: string
@@ -117,4 +153,111 @@ export type DiagnosisChatRequest = {
 
 export type DiagnosisChatResponse = {
   answer: string
+}
+
+export type PlotRecord = {
+  id: string
+  userEmail: string
+  name: string
+  crop: string
+  latitude: number
+  longitude: number
+  areaSqFt: number
+  locationLabel?: string
+  locationSource?: 'gps' | 'address' | 'manual'
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type GeocodedLocation = {
+  label: string
+  latitude: number
+  longitude: number
+  source: 'address'
+}
+
+export type PlotTodaySignals = {
+  tonightLowF?: number | null
+  todayHighF?: number | null
+  frostProbability: number
+  nextRainInches: number
+  rainProbability: number
+  heatStress: boolean
+  droughtPressure: boolean
+  source: string
+}
+
+export type PlotTodayCard = {
+  plotId: string
+  plotName: string
+  crop: string
+  headline: string
+  riskLevel: 'low' | 'medium' | 'high'
+  icon: 'frost' | 'heat' | 'dry' | 'rain' | 'scout' | string
+  actions: string[]
+  signals: PlotTodaySignals
+  generatedAt: string
+}
+
+export type WalkFrameStatus =
+  | 'calibration'
+  | 'ok'
+  | 'low_plant_signal'
+  | 'too_blurry'
+  | 'decode_failed'
+
+export type WalkFrameLevel = 'low' | 'medium' | 'high'
+
+export type WalkFrameInput = {
+  index: number
+  timestampMs: number
+  dataUrl: string
+}
+
+export type WalkAnalyzeRequest = {
+  frames: WalkFrameInput[]
+  calibrationIndexes: number[]
+}
+
+export type WalkFrameResult = {
+  index: number
+  timestampMs: number
+  status: WalkFrameStatus
+  anomalyScore: number | null
+  level: WalkFrameLevel | null
+  greenRatio: number
+  blurScore: number
+}
+
+export type WalkAnalyzeResponse = {
+  framesAnalyzed: number
+  validFrameCount: number
+  skippedFrameCount: number
+  calibrationFrameCount: number
+  anomalyMean: number
+  anomalyStdev: number
+  frames: WalkFrameResult[]
+  suspiciousIndexes: number[]
+}
+
+export type WalkSummaryWindow = {
+  startMs: number
+  endMs: number
+  level: WalkFrameLevel
+}
+
+export type WalkSummaryRequest = {
+  framesAnalyzed: number
+  validFrameCount: number
+  skippedFrameCount: number
+  calibrationFrameCount: number
+  anomalyMean: number
+  anomalyStdev: number
+  suspiciousWindows: WalkSummaryWindow[]
+  cropContext?: string
+}
+
+export type WalkSummaryResponse = {
+  summary: string
 }
