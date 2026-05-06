@@ -77,23 +77,44 @@ cropscan/.env.example
 ### Backend `.env`
 
 ```env
+ENVIRONMENT=development
 MONGODB_URL=mongodb+srv://<username>:<password>@cluster.mongodb.net/cropscan
 MONGODB_DB_NAME=cropscan
-JWT_SECRET_KEY=replace-with-a-long-random-secret
+JWT_SECRET_KEY=replace-with-secrets-token-urlsafe-48-or-another-32-plus-character-secret
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
+PREDICTION_TOKEN_EXPIRE_MINUTES=30
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 CORS_ORIGIN_REGEX=^https?://(localhost|127\.0\.0\.1)(:\d+)?$
 MODEL_DIR=models
 GEMINI_API_KEY=replace-with-your-gemini-api-key
 GEMINI_MODEL=gemini-2.5-flash
+RESEND_API_KEY=replace-with-your-resend-api-key
+RESEND_FROM_EMAIL=CropScan <onboarding@yourdomain.com>
+APP_BASE_URL=http://localhost:5173
+PASSWORD_RESET_OTP_EXPIRE_MINUTES=10
+EMAIL_DEBUG_OTP=false
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_STORAGE_URI=
+TRUST_PROXY_HEADERS=false
+PASSWORD_RESET_RESPONSE_DELAY_SECONDS=0.3
+PASSWORD_RESET_MAX_ATTEMPTS=5
+PASSWORD_RESET_LOCKOUT_MINUTES=60
+MAX_SCANS_PER_USER=2000
+MAX_PLOTS_PER_USER=50
 ```
 
 For deployed production on Render, set:
 
 ```env
+ENVIRONMENT=production
 CORS_ORIGINS=https://cropscan.tech,https://www.cropscan.tech
+RATE_LIMIT_STORAGE_URI=rediss://<upstash-redis-url>
+EMAIL_DEBUG_OTP=false
 ```
+
+Use a shared Redis-compatible `RATE_LIMIT_STORAGE_URI` in production. Without it, rate limits are process-local and only correct for a single backend worker.
+Set `TRUST_PROXY_HEADERS=true` only behind a trusted proxy such as Render. Keep it `false` for local Docker or direct uvicorn runs.
 
 ### Frontend `.env`
 
@@ -271,11 +292,10 @@ Main routes:
 - `GET /api/v1/auth/me`
 - `PATCH /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
-- `POST /api/v1/auth/forgot-password`
+- `POST /api/v1/auth/forgot-password/request`
+- `POST /api/v1/auth/forgot-password/confirm`
 - `POST /api/v1/upload`
 - `POST /api/v1/chat`
-- `POST /upload`
-- `POST /chat`
 
 Protected routes require:
 
@@ -283,7 +303,7 @@ Protected routes require:
 Authorization: Bearer <token>
 ```
 
-Note: the forgot-password route is currently not exposed in the login UI because the reset flow still needs a secure OTP or signed-token implementation.
+Password reset uses a Resend-backed one-time code. In local development only, set `EMAIL_DEBUG_OTP=true` to return the code in the API response while email is not configured.
 
 ## Verification Commands
 
