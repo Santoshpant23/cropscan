@@ -14,7 +14,8 @@ COPY requirements.docker.txt .
 RUN pip install --no-cache-dir -r requirements.docker.txt \
     && pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
-        torch==2.5.1 torchvision==0.20.1
+        torch==2.5.1 torchvision==0.20.1 \
+    && pip install --no-cache-dir timm==1.0.11
 
 COPY app ./app
 COPY models ./models
