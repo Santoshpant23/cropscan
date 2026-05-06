@@ -1,8 +1,20 @@
 import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  AlertTriangle,
+  LogOut,
+  Mail,
+  MapPin,
+  Save,
+  Shield,
+  Trash2,
+  User,
+  UserCog,
+} from 'lucide-react'
 import { useAuth } from '../context/useAuth'
 import { getFormValue } from '../lib/forms'
+import { getInitials } from '../lib/format'
 import { AUTH_TOKEN_KEY, AUTH_USER_KEY } from '../lib/storage'
 import type { UserProfile } from '../types'
 
@@ -37,6 +49,7 @@ function Profile() {
   }
 
   function handleDeleteLocalProfile() {
+    if (!window.confirm('Permanently delete this account from this browser?')) return
     localStorage.removeItem(AUTH_TOKEN_KEY)
     localStorage.removeItem(AUTH_USER_KEY)
     logout()
@@ -46,39 +59,67 @@ function Profile() {
   if (!user) return null
 
   return (
-    <section className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="rounded-lg border border-[#14532d]/10 bg-white p-6 shadow-sm">
-          <p className="text-sm font-bold uppercase text-[#15803d]">Account</p>
-          <h1 className="mt-2 text-3xl font-black text-[#16351f]">Profile settings</h1>
-          <p className="mt-2 text-sm leading-6 text-[#4b5d50]">
+    <section className="mx-auto w-full max-w-3xl px-6 pb-10 pt-4 sm:pt-6 lg:max-w-4xl lg:px-8 lg:pt-10">
+      <div className="rounded-lg border border-stroke bg-surface p-5 shadow-sm sm:p-8">
+        <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+          <span className="font-display flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-forest-700 text-2xl font-bold tracking-tight text-lime">
+            {getInitials(user.name)}
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-leaf-700">
+              Your profile
+            </p>
+            <h1 className="font-display mt-2 text-3xl font-bold tracking-tight text-forest-900 sm:text-4xl">
+              {user.name}
+            </h1>
+            <p className="mt-1 text-sm font-medium text-muted">{user.email}</p>
+          </div>
+        </div>
+
+        <hr className="my-8 border-stroke" />
+
+        <section>
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-leaf-700">
+            <UserCog className="h-3.5 w-3.5" strokeWidth={2.4} />
+            Account
+          </p>
+          <h2 className="font-display mt-2 text-xl font-bold tracking-tight text-forest-900">
+            Profile settings
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
             Update the account details connected to saved scans and field history.
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-8 grid gap-5 sm:grid-cols-2">
+          <form onSubmit={handleSubmit} className="mt-6 grid gap-5 sm:grid-cols-2">
             <div>
-              <label htmlFor="name" className="text-sm font-black text-[#16351f]">
+              <label htmlFor="name" className="block text-sm font-bold text-forest-700">
                 Full name
               </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                defaultValue={user.name}
-                required
-                className="mt-2 w-full rounded-md border border-[#14532d]/15 bg-white px-4 py-3 text-[#16351f] outline-none transition focus:border-[#22c55e] focus:ring-4 focus:ring-[#bbf7d0]"
-              />
+              <div className="relative mt-2">
+                <User
+                  className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-outline"
+                  strokeWidth={2}
+                />
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  defaultValue={user.name}
+                  required
+                  className="crop-touch w-full rounded-md border border-stroke bg-canvas pl-12 pr-4 text-base text-forest-900 outline-none transition focus:border-leaf-700 focus:bg-white focus:ring-4 focus:ring-leaf-300/40"
+                />
+              </div>
             </div>
 
             <div>
-              <label htmlFor="role" className="text-sm font-black text-[#16351f]">
+              <label htmlFor="role" className="block text-sm font-bold text-forest-700">
                 Role
               </label>
               <select
                 id="role"
                 name="role"
                 defaultValue={user.role}
-                className="mt-2 w-full rounded-md border border-[#14532d]/15 bg-white px-4 py-3 text-[#16351f] outline-none transition focus:border-[#22c55e] focus:ring-4 focus:ring-[#bbf7d0]"
+                className="crop-touch mt-2 w-full rounded-md border border-stroke bg-canvas px-4 text-base text-forest-900 outline-none transition focus:border-leaf-700 focus:bg-white focus:ring-4 focus:ring-leaf-300/40"
               >
                 <option>Smallholder farmer</option>
                 <option>Backyard grower</option>
@@ -89,79 +130,118 @@ function Profile() {
             </div>
 
             <div>
-              <label htmlFor="email" className="text-sm font-black text-[#16351f]">
-                Email
+              <label htmlFor="email" className="block text-sm font-bold text-forest-700">
+                Email address
               </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                defaultValue={user.email}
-                required
-                className="mt-2 w-full rounded-md border border-[#14532d]/15 bg-white px-4 py-3 text-[#16351f] outline-none transition focus:border-[#22c55e] focus:ring-4 focus:ring-[#bbf7d0]"
-              />
+              <div className="relative mt-2">
+                <Mail
+                  className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-outline"
+                  strokeWidth={2}
+                />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  defaultValue={user.email}
+                  required
+                  className="crop-touch w-full rounded-md border border-stroke bg-canvas pl-12 pr-4 text-base text-forest-900 outline-none transition focus:border-leaf-700 focus:bg-white focus:ring-4 focus:ring-leaf-300/40"
+                />
+              </div>
             </div>
 
             <div>
-              <label htmlFor="location" className="text-sm font-black text-[#16351f]">
+              <label htmlFor="location" className="block text-sm font-bold text-forest-700">
                 Location
               </label>
-              <input
-                id="location"
-                name="location"
-                type="text"
-                defaultValue={user.location}
-                className="mt-2 w-full rounded-md border border-[#14532d]/15 bg-white px-4 py-3 text-[#16351f] outline-none transition focus:border-[#22c55e] focus:ring-4 focus:ring-[#bbf7d0]"
-              />
+              <div className="relative mt-2">
+                <MapPin
+                  className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-outline"
+                  strokeWidth={2}
+                />
+                <input
+                  id="location"
+                  name="location"
+                  type="text"
+                  defaultValue={user.location}
+                  className="crop-touch w-full rounded-md border border-stroke bg-canvas pl-12 pr-4 text-base text-forest-900 outline-none transition focus:border-leaf-700 focus:bg-white focus:ring-4 focus:ring-leaf-300/40"
+                  placeholder="Knox County, TN"
+                />
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={isSubmitting}
-              className="cursor-pointer rounded-md bg-[#f97316] px-5 py-3 text-sm font-black text-white transition hover:bg-[#ea580c] disabled:cursor-not-allowed disabled:bg-[#a8b3aa] sm:col-span-2"
+              className="crop-touch inline-flex w-full items-center justify-center gap-2 rounded-md bg-lime px-6 text-base font-bold tracking-tight text-forest-900 shadow-sm transition hover:-translate-y-0.5 hover:bg-lime-soft disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-outline disabled:shadow-none disabled:hover:translate-y-0 sm:col-span-2"
             >
+              <Save className="h-5 w-5" strokeWidth={2.2} />
               {isSubmitting ? 'Saving profile...' : 'Save profile'}
             </button>
           </form>
 
           {error && (
-            <p className="mt-4 rounded-md bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#be123c] ring-1 ring-[#fecdd3]">
+            <p
+              role="alert"
+              className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-danger ring-1 ring-red-200"
+            >
               {error}
             </p>
           )}
-
           {savedMessage && (
-            <p className="mt-4 rounded-md bg-[#f0fdf4] px-4 py-3 text-sm font-bold text-[#166534] ring-1 ring-[#bbf7d0]">
+            <p className="mt-4 inline-flex items-center gap-2 rounded-md bg-leaf-300/20 px-4 py-3 text-sm font-bold text-leaf-700 ring-1 ring-leaf-300/40">
+              <Shield className="h-4 w-4" strokeWidth={2.4} />
               {savedMessage}
             </p>
           )}
-        </div>
+        </section>
 
-        <aside className="rounded-lg bg-[#16351f] p-6 text-white shadow-sm">
-          <h2 className="text-2xl font-black">Local account</h2>
-          <p className="mt-3 text-sm leading-6 text-[#d1fae5]">
-            Your session is stored locally now and can be replaced by the backend
-            login flow later without changing these pages.
+        <hr className="my-8 border-stroke" />
+
+        <section>
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-leaf-700">
+            <Shield className="h-3.5 w-3.5" strokeWidth={2.4} />
+            Session
           </p>
-          <div className="mt-5 rounded-lg bg-white/10 p-4 ring-1 ring-white/15">
-            <p className="text-xs font-bold uppercase text-[#bef264]">Signed in as</p>
-            <p className="mt-1 break-words text-sm font-bold">{user.email}</p>
-          </div>
+          <h2 className="font-display mt-2 text-xl font-bold tracking-tight text-forest-900">
+            Local account
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            Your session is stored locally on this browser and can be replaced by
+            a backend login flow later without changing this page.
+          </p>
           <button
             type="button"
             onClick={logout}
-            className="mt-5 w-full cursor-pointer rounded-md bg-white/10 px-4 py-2 text-sm font-bold text-white ring-1 ring-white/15 transition hover:bg-white/15"
+            className="crop-touch mt-5 inline-flex items-center justify-center gap-2 rounded-md border border-stroke bg-white px-5 text-sm font-bold text-forest-900 transition hover:border-leaf-700 hover:bg-canvas"
           >
+            <LogOut className="h-4.5 w-4.5" strokeWidth={2.2} />
             Logout
           </button>
+        </section>
+
+        <hr className="my-8 border-stroke" />
+
+        <section className="rounded-2xl border border-red-200 bg-red-50 p-6">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-danger">
+            <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2.4} />
+            Danger zone
+          </p>
+          <h2 className="font-display mt-2 text-xl font-bold tracking-tight text-forest-900">
+            Delete local profile
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            Permanently remove the account and saved session from this browser.
+            This action cannot be undone.
+          </p>
           <button
             type="button"
             onClick={handleDeleteLocalProfile}
-            className="mt-3 w-full cursor-pointer rounded-md bg-[#fff1f2] px-4 py-2 text-sm font-black text-[#be123c] transition hover:bg-white"
+            className="crop-touch mt-5 inline-flex items-center justify-center gap-2 rounded-md bg-danger px-5 text-sm font-bold text-white transition hover:bg-danger"
           >
+            <Trash2 className="h-4.5 w-4.5" strokeWidth={2.2} />
             Delete local profile
           </button>
-        </aside>
+        </section>
       </div>
     </section>
   )
