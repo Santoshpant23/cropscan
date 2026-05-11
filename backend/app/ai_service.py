@@ -81,6 +81,14 @@ and take a close-up photo for a single-leaf scan). Do not invent disease names.
 Do not promise a diagnosis. Do not mention products or brands.
 """.strip()
 
+DISEASE_LABEL_SYSTEM_PROMPT = """
+You turn raw PlantVillage classifier labels into plain English for farm workers.
+Return only compact JSON with two string fields:
+friendlyName: a short common name, 2 to 8 words.
+explanation: one sentence under 120 characters explaining what it means.
+Do not mention treatment, certainty, products, or model confidence.
+""".strip()
+
 
 def _trim_text(value: str, fallback: str, max_length: int) -> str:
     cleaned = " ".join(value.split()).strip()
@@ -94,6 +102,95 @@ def _trim_text(value: str, fallback: str, max_length: int) -> str:
     if sentence_end >= int(max_length * 0.6):
         return clipped[: sentence_end + 1]
     return clipped
+
+
+def _fallback_friendly_disease_label(raw_label: str) -> dict:
+    disease_part = raw_label
+    if "___" in raw_label:
+        _crop_part, disease_part = raw_label.split("___", 1)
+    elif raw_label.startswith("Tomato__Tomato_"):
+        disease_part = raw_label.replace("Tomato__Tomato_", "", 1)
+    elif raw_label.startswith("Tomato__"):
+        disease_part = raw_label.replace("Tomato__", "", 1)
+    elif raw_label.startswith("Tomato_"):
+        disease_part = raw_label.replace("Tomato_", "", 1)
+
+    friendly_name = (
+        disease_part.replace("__", " ")
+        .replace("_", " ")
+        .replace("(", " (")
+        .replace("  ", " ")
+        .strip()
+        .title()
+    )
+    friendly_name = friendly_name.replace("Haunglongbing", "Huanglongbing")
+    if friendly_name.lower() == "healthy":
+        return {
+            "friendlyName": "Healthy",
+            "explanation": "Leaf looks healthy with no obvious disease pattern.",
+        }
+    if "mite" in friendly_name.lower():
+        explanation = "Tiny mites causing speckled, bronzed, or webbed leaves."
+    elif "virus" in friendly_name.lower():
+        explanation = "Viral disease that can distort, yellow, or stunt leaves."
+    elif any(
+        keyword in friendly_name.lower()
+        for keyword in ["spot", "blight", "rot", "rust", "mildew", "mold", "scab"]
+    ):
+        explanation = "Leaf damage commonly linked to a fungal or bacterial disease."
+    else:
+        explanation = "Plant condition detected by the crop disease classifier."
+
+    return {
+        "friendlyName": _trim_text(friendly_name, "Unknown condition", 80),
+        "explanation": _trim_text(explanation, "Plant condition detected by CropScan.", 160),
+    }
+
+
+@lru_cache(maxsize=128)
+def generate_friendly_disease_label(raw_label: str) -> dict:
+    """Ask Gemini for farmer-friendly disease text, with a deterministic fallback."""
+
+    fallback = _fallback_friendly_disease_label(raw_label)
+    client = get_gemini_client()
+    if client is None:
+        return fallback
+
+    settings = get_settings()
+    prompt = f"Raw PlantVillage label: {raw_label}"
+    try:
+        response = _generate_with_retry(
+            client,
+            model=settings.gemini_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                systemInstruction=DISEASE_LABEL_SYSTEM_PROMPT,
+                temperature=0.1,
+                maxOutputTokens=120,
+                responseMimeType="application/json",
+            ),
+        )
+        payload = json.loads(response.text or "{}")
+        friendly_name = _trim_text(
+            str(payload.get("friendlyName") or ""),
+            fallback["friendlyName"],
+            80,
+        )
+        explanation = _trim_text(
+            str(payload.get("explanation") or ""),
+            fallback["explanation"],
+            160,
+        )
+        return {"friendlyName": friendly_name, "explanation": explanation}
+    except genai_errors.ClientError as exc:
+        logger.warning(
+            "Gemini disease label generation failed (code=%s). Falling back.",
+            getattr(exc, "code", None),
+        )
+        return fallback
+    except Exception:
+        logger.exception("Gemini disease label generation failed. Falling back.")
+        return fallback
 
 
 def _urgency_for(disease: str, status: str) -> str:

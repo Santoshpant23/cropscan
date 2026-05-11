@@ -22,6 +22,7 @@ import {
   saveScanRequest,
   uploadLeafRequest,
 } from '../lib/api'
+import { getDiseaseDisplay } from '../lib/diseaseInfo'
 import { saveAnalysis } from '../lib/storage'
 import HelpTip from './HelpTip'
 import type {
@@ -168,6 +169,9 @@ function buildAnalysisRecordFromResponse(
     scanLocationLabel: plot?.locationLabel,
     cropType: response.cropType,
     condition: response.condition,
+    rawDiseaseLabel: response.rawDiseaseLabel,
+    diseaseFriendlyName: response.diseaseFriendlyName,
+    diseaseExplanation: response.diseaseExplanation,
     confidencePercent: response.confidencePercent,
     status: response.status,
     diagnosisState: response.diagnosisState,
@@ -181,7 +185,10 @@ function buildAnalysisRecordFromResponse(
       modelName: prediction.modelName,
       crop: prediction.crop,
       disease: prediction.disease,
+      diseaseFriendlyName: prediction.diseaseFriendlyName,
+      diseaseExplanation: prediction.diseaseExplanation,
       className: prediction.className,
+      rawDiseaseLabel: prediction.rawDiseaseLabel,
       confidenceMargin: prediction.confidenceMargin,
       entropy: prediction.entropy,
       temperature: prediction.temperature,
@@ -189,8 +196,11 @@ function buildAnalysisRecordFromResponse(
       confidence: Math.round(prediction.confidencePercent),
       topK: prediction.topK.map((topPrediction) => ({
         className: topPrediction.className,
+        rawDiseaseLabel: topPrediction.rawDiseaseLabel,
         crop: topPrediction.crop,
         disease: topPrediction.disease,
+        diseaseFriendlyName: topPrediction.diseaseFriendlyName,
+        diseaseExplanation: topPrediction.diseaseExplanation,
         confidence: Math.round(topPrediction.confidencePercent),
       })),
     })),
@@ -225,6 +235,9 @@ function buildChatRequest(
         crop: prediction.crop,
         disease: prediction.disease,
         className: prediction.className,
+        rawDiseaseLabel: prediction.rawDiseaseLabel,
+        diseaseFriendlyName: prediction.diseaseFriendlyName,
+        diseaseExplanation: prediction.diseaseExplanation,
         confidencePercent: prediction.confidence,
       })),
     },
@@ -266,6 +279,21 @@ function ScanPage() {
   const remainingQuestionCount = MAX_CHAT_QUESTIONS - usedQuestionCount
   const hasReachedChatLimit = remainingQuestionCount <= 0
   const isLatestRecordOutOfScope = latestRecord?.diagnosisState === 'out_of_scope'
+  const latestPrimaryPrediction = latestRecord?.predictions[0]
+  const latestDiseaseInfo = latestRecord
+    ? getDiseaseDisplay({
+        className: latestPrimaryPrediction?.className,
+        rawDiseaseLabel:
+          latestRecord.rawDiseaseLabel || latestPrimaryPrediction?.rawDiseaseLabel,
+        disease: latestRecord.condition || latestPrimaryPrediction?.disease,
+        diseaseFriendlyName:
+          latestRecord.diseaseFriendlyName ||
+          latestPrimaryPrediction?.diseaseFriendlyName,
+        diseaseExplanation:
+          latestRecord.diseaseExplanation ||
+          latestPrimaryPrediction?.diseaseExplanation,
+      })
+    : null
   const isCameraSupported =
     typeof navigator !== 'undefined' &&
     !!navigator.mediaDevices &&
@@ -1093,13 +1121,23 @@ function ScanPage() {
                   </p>
                   <p className="font-display mt-1.5 text-2xl font-bold tracking-tight sm:text-3xl">
                     {(latestRecord.cropType ||
-                      latestRecord.predictions[0]?.crop ||
+                      latestPrimaryPrediction?.crop ||
                       'Review needed') +
                       ' — ' +
-                      (latestRecord.condition ||
-                        latestRecord.predictions[0]?.disease ||
-                        'Retake photo')}
+                      (latestDiseaseInfo?.friendlyName || 'Retake photo')}
                   </p>
+                  {latestDiseaseInfo ? (
+                    <>
+                      {latestDiseaseInfo.rawLabel ? (
+                        <p className="mt-1 text-xs font-bold opacity-80">
+                          Scientific label: {latestDiseaseInfo.rawLabel}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-sm font-medium opacity-90">
+                        What this means: {latestDiseaseInfo.explanation}
+                      </p>
+                    </>
+                  ) : null}
                   {latestRecord.diagnosisReason && (
                     <p className="mt-2 text-sm font-medium opacity-90">
                       {friendlyReasonLabel(latestRecord)}:{' '}
@@ -1111,11 +1149,13 @@ function ScanPage() {
 
               {latestRecord.predictions.length > 0 ? (
                 <div className="grid gap-4 md:grid-cols-2">
-                  {latestRecord.predictions.map((prediction) => (
-                    <div
-                      key={prediction.modelName}
-                      className="rounded-lg border border-white/15 bg-white p-5 text-forest-700"
-                    >
+                  {latestRecord.predictions.map((prediction) => {
+                    const diseaseDisplay = getDiseaseDisplay(prediction)
+                    return (
+                      <div
+                        key={prediction.modelName}
+                        className="rounded-lg border border-white/15 bg-white p-5 text-forest-700"
+                      >
                       <p className="text-sm font-black text-leaf-500">
                         {prediction.modelName}
                       </p>
@@ -1123,7 +1163,15 @@ function ScanPage() {
                         {prediction.confidence}%
                       </p>
                       <p className="mt-2 text-sm font-bold text-muted">
-                        {prediction.crop} - {prediction.disease}
+                        {prediction.crop} - {diseaseDisplay.friendlyName}
+                      </p>
+                      {diseaseDisplay.rawLabel ? (
+                        <p className="mt-1 text-xs font-bold text-outline">
+                          Scientific label: {diseaseDisplay.rawLabel}
+                        </p>
+                      ) : null}
+                      <p className="mt-1 text-xs font-bold leading-5 text-outline">
+                        What this means: {diseaseDisplay.explanation}
                       </p>
                       {(prediction.confidenceMargin !== undefined ||
                         prediction.entropy !== undefined) && (
@@ -1140,19 +1188,35 @@ function ScanPage() {
                       )}
                       {prediction.topK && (
                         <div className="mt-4 space-y-2 border-t border-stroke pt-3">
-                          {prediction.topK.slice(0, 3).map((topPrediction) => (
-                            <p
-                              key={`${prediction.modelName}-${topPrediction.className}`}
-                              className="flex justify-between gap-3 text-xs font-bold text-muted"
-                            >
-                              <span>{topPrediction.disease}</span>
-                              <span>{topPrediction.confidence}%</span>
-                            </p>
-                          ))}
+                          {prediction.topK.slice(0, 3).map((topPrediction) => {
+                            const topDiseaseInfo = getDiseaseDisplay(topPrediction)
+                            return (
+                              <p
+                                key={`${prediction.modelName}-${topPrediction.className}`}
+                                className="flex justify-between gap-3 text-xs font-bold text-muted"
+                              >
+                                <span>
+                                  <span className="block">
+                                    {topDiseaseInfo.friendlyName}
+                                  </span>
+                                  {topDiseaseInfo.rawLabel ? (
+                                    <span className="mt-0.5 block font-medium text-outline">
+                                      {topDiseaseInfo.rawLabel}
+                                    </span>
+                                  ) : null}
+                                  <span className="mt-0.5 block font-medium text-outline">
+                                    {topDiseaseInfo.explanation}
+                                  </span>
+                                </span>
+                                <span>{topPrediction.confidence}%</span>
+                              </p>
+                            )
+                          })}
                         </div>
                       )}
-                    </div>
-                  ))}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="rounded-lg border border-white/15 bg-white/8 p-5">

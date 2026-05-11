@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/useAuth'
 import { deleteScanRequest, getScansRequest } from '../lib/api'
+import { getDiseaseDisplay } from '../lib/diseaseInfo'
 import type { AnalysisRecord } from '../types'
 
 function formatDate(value: string) {
@@ -160,7 +161,19 @@ function Dashboard() {
         </div>
       ) : (
         <div className="mt-6 grid gap-5">
-          {records.map((record) => (
+          {records.map((record) => {
+            const primaryPrediction = record.predictions[0]
+            const diseaseInfo = getDiseaseDisplay({
+              className: primaryPrediction?.className,
+              rawDiseaseLabel:
+                record.rawDiseaseLabel || primaryPrediction?.rawDiseaseLabel,
+              disease: record.condition || primaryPrediction?.disease,
+              diseaseFriendlyName:
+                record.diseaseFriendlyName || primaryPrediction?.diseaseFriendlyName,
+              diseaseExplanation:
+                record.diseaseExplanation || primaryPrediction?.diseaseExplanation,
+            })
+            return (
             <article
               key={record.id}
               className="grid gap-5 rounded-lg border border-[#14532d]/10 bg-white p-4 shadow-sm lg:grid-cols-[220px_1fr]"
@@ -183,8 +196,17 @@ function Dashboard() {
                       {formatDate(record.createdAt)} - {record.fileName}
                     </p>
                     <h2 className="mt-1 text-2xl font-black text-[#16351f]">
-                      {record.predictions[0].crop} - {record.predictions[0].disease}
+                      {primaryPrediction?.crop || record.cropType || 'Review needed'} -{' '}
+                      {diseaseInfo.friendlyName}
                     </h2>
+                    {diseaseInfo.rawLabel ? (
+                      <p className="mt-1 text-xs font-bold text-[#6b7a6f]">
+                        Scientific label: {diseaseInfo.rawLabel}
+                      </p>
+                    ) : null}
+                    <p className="mt-2 text-sm font-bold leading-6 text-[#4b5d50]">
+                      What this means: {diseaseInfo.explanation}
+                    </p>
                   </div>
                   <span
                     className={`w-fit rounded-md px-3 py-1 text-xs font-black ${
@@ -230,7 +252,8 @@ function Dashboard() {
                 </div>
               </div>
             </article>
-          ))}
+            )
+          })}
         </div>
       )}
     </section>

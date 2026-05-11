@@ -11,7 +11,7 @@ import torch
 from torch import nn
 from torchvision import models, transforms
 
-from app.ai_service import generate_recommendation
+from app.ai_service import generate_friendly_disease_label, generate_recommendation
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -350,10 +350,14 @@ def _class_to_disease(class_name: str) -> str:
 def _prediction_from_index(index: int, probability: float) -> dict:
     class_name = CLASS_NAMES[index]
     disease = _class_to_disease(class_name)
+    friendly_label = generate_friendly_disease_label(class_name)
     return {
         "className": class_name,
+        "rawDiseaseLabel": class_name,
         "crop": _class_to_crop(class_name),
         "disease": disease,
+        "diseaseFriendlyName": friendly_label["friendlyName"],
+        "diseaseExplanation": friendly_label["explanation"],
         "confidence": round(float(probability), 4),
         "confidencePercent": round(float(probability) * 100, 2),
         "isHealthy": disease == "Healthy",
@@ -514,6 +518,9 @@ def _out_of_scope_response(filename: str, image: Image.Image, leaf_validation: d
         "leafValidation": leaf_validation,
         "cropType": "Out of scope",
         "condition": "Not a clear crop leaf",
+        "rawDiseaseLabel": None,
+        "diseaseFriendlyName": "Not a clear crop leaf",
+        "diseaseExplanation": "CropScan needs a clearer supported crop leaf before naming disease.",
         "confidenceScore": 0,
         "confidencePercent": 0,
         "status": "Review needed",
@@ -568,7 +575,7 @@ def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
     best_prediction = max(predictions, key=lambda prediction: prediction["confidence"])
     fallback_recommendation = _recommendation_for(predictions, status)
     display_crop = best_prediction["crop"]
-    display_condition = best_prediction["disease"]
+    display_condition = best_prediction["diseaseFriendlyName"]
     if status != "High confidence":
         display_crop = display_crop if same_top_class else "Multiple possibilities"
         display_condition = "Needs clearer photo"
@@ -587,6 +594,9 @@ def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
         "leafValidation": leaf_validation,
         "cropType": display_crop,
         "condition": display_condition,
+        "rawDiseaseLabel": best_prediction["rawDiseaseLabel"],
+        "diseaseFriendlyName": best_prediction["diseaseFriendlyName"],
+        "diseaseExplanation": best_prediction["diseaseExplanation"],
         "confidenceScore": best_prediction["confidence"],
         "confidencePercent": best_prediction["confidencePercent"],
         "status": status,
@@ -683,6 +693,9 @@ def predict_leaf_images(image_payloads: list[tuple[bytes, str]]) -> dict:
             "photoResults": photo_results,
             "cropType": "Out of scope",
             "condition": "Not clear crop leaves",
+            "rawDiseaseLabel": None,
+            "diseaseFriendlyName": "Not a clear crop leaf",
+            "diseaseExplanation": "CropScan needs a clearer supported crop leaf before naming disease.",
             "confidenceScore": 0,
             "confidencePercent": 0,
             "status": "Review needed",
@@ -740,7 +753,7 @@ def predict_leaf_images(image_payloads: list[tuple[bytes, str]]) -> dict:
             ),
         }
         crop_type = best_prediction["crop"]
-        condition = best_prediction["disease"]
+        condition = best_prediction["diseaseFriendlyName"]
     else:
         recommendation, recommendation_details = _multi_photo_uncertain_recommendation()
         diagnosis_state = {
@@ -768,6 +781,9 @@ def predict_leaf_images(image_payloads: list[tuple[bytes, str]]) -> dict:
         "photoResults": photo_results,
         "cropType": crop_type,
         "condition": condition,
+        "rawDiseaseLabel": best_prediction["rawDiseaseLabel"],
+        "diseaseFriendlyName": best_prediction["diseaseFriendlyName"],
+        "diseaseExplanation": best_prediction["diseaseExplanation"],
         "confidenceScore": round(average_confidence_percent / 100, 4),
         "confidencePercent": round(average_confidence_percent, 2),
         "status": status,

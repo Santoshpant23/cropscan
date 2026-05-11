@@ -9,12 +9,18 @@ export type ModelPrediction = {
   modelName: 'EfficientNet-B0' | 'MobileNetV2'
   crop: string
   disease: string
+  diseaseFriendlyName?: string
+  diseaseExplanation?: string
   confidence: number
   className?: string
+  rawDiseaseLabel?: string
   topK?: Array<{
     className: string
+    rawDiseaseLabel?: string
     crop: string
     disease: string
+    diseaseFriendlyName?: string
+    diseaseExplanation?: string
     confidence: number
   }>
 }
@@ -37,6 +43,9 @@ export type AnalysisRecord = {
   imageDataUrl: string
   cropType?: string
   condition?: string
+  rawDiseaseLabel?: string
+  diseaseFriendlyName?: string
+  diseaseExplanation?: string
   confidencePercent?: number
   status: 'High confidence' | 'Review needed'
   recommendation: string
@@ -47,30 +56,50 @@ export type AnalysisRecord = {
 
 export type ScanResponse = {
   id: string
-  user_id: string
-  timestamp: string
-  image_filename: string
+  user_id?: string
+  userEmail?: string
+  timestamp?: string
+  createdAt?: string
+  image_filename?: string
+  fileName?: string
+  imageDataUrl?: string
   predictions: Array<{
     modelName: 'EfficientNet-B0' | 'MobileNetV2'
     crop: string
     disease: string
     className?: string
+    rawDiseaseLabel?: string
+    diseaseFriendlyName?: string
+    diseaseExplanation?: string
     confidence: number
     confidencePercent?: number
     topK?: Array<{
       className: string
+      rawDiseaseLabel?: string
       crop: string
       disease: string
+      diseaseFriendlyName?: string
+      diseaseExplanation?: string
       confidence: number
       confidencePercent?: number
     }>
   }>
   recommendation: string
   recommendation_details?: RecommendationDetails
-  disease_label: string
+  recommendationDetails?: RecommendationDetails
+  disease_label?: string
+  condition?: string
+  rawDiseaseLabel?: string
+  diseaseFriendlyName?: string
+  diseaseExplanation?: string
   crop_type?: string
+  cropType?: string
   confidence_percent?: number
+  confidencePercent?: number
   status: 'High confidence' | 'Review needed'
+  diagnosisState?: 'confident' | 'uncertain_need_more_photos' | 'out_of_scope'
+  diagnosisStateLabel?: string
+  diagnosisReason?: string
 }
 
 export type AuthUserResponse = {
@@ -86,6 +115,9 @@ export type UploadResponse = {
   fileName: string
   cropType: string
   condition: string
+  rawDiseaseLabel?: string
+  diseaseFriendlyName?: string
+  diseaseExplanation?: string
   confidenceScore: number
   confidencePercent: number
   status: 'High confidence' | 'Review needed'
@@ -96,12 +128,18 @@ export type UploadResponse = {
     crop: string
     disease: string
     className: string
+    rawDiseaseLabel?: string
+    diseaseFriendlyName?: string
+    diseaseExplanation?: string
     confidence: number
     confidencePercent: number
     topK: Array<{
       className: string
+      rawDiseaseLabel?: string
       crop: string
       disease: string
+      diseaseFriendlyName?: string
+      diseaseExplanation?: string
       confidence: number
       confidencePercent: number
     }>
@@ -126,6 +164,9 @@ export type DiagnosisChatRequest = {
       crop: string
       disease: string
       className?: string
+      rawDiseaseLabel?: string
+      diseaseFriendlyName?: string
+      diseaseExplanation?: string
       confidencePercent: number
     }>
   }

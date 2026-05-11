@@ -98,6 +98,13 @@ class DiagnosisPrediction(BaseModel):
     crop: str
     disease: str
     class_name: str | None = Field(default=None, alias="className")
+    raw_disease_label: str | None = Field(default=None, alias="rawDiseaseLabel")
+    disease_friendly_name: str | None = Field(
+        default=None, alias="diseaseFriendlyName", max_length=80
+    )
+    disease_explanation: str | None = Field(
+        default=None, alias="diseaseExplanation", max_length=160
+    )
     confidence_percent: float = Field(alias="confidencePercent", ge=0, le=100)
 
     model_config = ConfigDict(populate_by_name=True)
@@ -138,8 +145,11 @@ class PersistedThresholds(BaseModel):
 
 class PersistedTopPrediction(BaseModel):
     className: str = Field(min_length=1, max_length=160)
+    rawDiseaseLabel: str | None = Field(default=None, max_length=160)
     crop: str = Field(min_length=1, max_length=120)
     disease: str = Field(min_length=1, max_length=160)
+    diseaseFriendlyName: str | None = Field(default=None, max_length=80)
+    diseaseExplanation: str | None = Field(default=None, max_length=160)
     confidence: float = Field(ge=0, le=100)
 
 
@@ -147,8 +157,11 @@ class PersistedPrediction(BaseModel):
     modelName: str = Field(min_length=1, max_length=120)
     crop: str = Field(min_length=1, max_length=120)
     disease: str = Field(min_length=1, max_length=160)
+    diseaseFriendlyName: str | None = Field(default=None, max_length=80)
+    diseaseExplanation: str | None = Field(default=None, max_length=160)
     confidence: float = Field(ge=0, le=100)
     className: str | None = Field(default=None, max_length=160)
+    rawDiseaseLabel: str | None = Field(default=None, max_length=160)
     confidenceMargin: float | None = Field(default=None, ge=0)
     entropy: float | None = Field(default=None, ge=0)
     temperature: float | None = Field(default=None, gt=0)
@@ -169,6 +182,9 @@ class ScanCreate(BaseModel):
     photoCount: int = Field(default=1, ge=1, le=3)
     cropType: str | None = Field(default=None, max_length=120)
     condition: str | None = Field(default=None, max_length=160)
+    rawDiseaseLabel: str | None = Field(default=None, max_length=160)
+    diseaseFriendlyName: str | None = Field(default=None, max_length=80)
+    diseaseExplanation: str | None = Field(default=None, max_length=160)
     confidencePercent: float | None = Field(default=None, ge=0, le=100)
     status: Literal["High confidence", "Review needed"] | None = None
     diagnosisState: Literal[
@@ -209,6 +225,9 @@ class ScanResponse(BaseModel):
     scanLocationLabel: str | None = None
     cropType: str | None = None
     condition: str | None = None
+    rawDiseaseLabel: str | None = None
+    diseaseFriendlyName: str | None = None
+    diseaseExplanation: str | None = None
     confidencePercent: float | None = Field(default=None, ge=0, le=100)
     status: Literal["High confidence", "Review needed"]
     diagnosisState: Literal[
