@@ -1,7 +1,11 @@
+import json
+import logging
+from collections import Counter
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 import torch
 from torch import nn
@@ -9,6 +13,8 @@ from torchvision import models, transforms
 
 from app.ai_service import generate_recommendation
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 CLASS_NAMES = [
     "Apple___Apple_scab",
@@ -52,6 +58,8 @@ CLASS_NAMES = [
 ]
 
 CONFIDENCE_THRESHOLD = 0.70
+DEFAULT_MARGIN_THRESHOLD = 0.20
+DEFAULT_ENTROPY_THRESHOLD = 0.55
 LEAF_DETECTOR_THRESHOLD = 0.12
 LEAF_GREEN_RATIO_THRESHOLD = 0.10
 LEAF_TOPK_PLANT_HITS_THRESHOLD = 2
@@ -164,6 +172,60 @@ def _model_path(file_name: str) -> Path:
     return model_dir / file_name
 
 
+def _default_calibration() -> dict:
+    return {
+        "temperature": 1.0,
+        "thresholds": {
+            "max_prob_min": CONFIDENCE_THRESHOLD,
+            "margin_min": DEFAULT_MARGIN_THRESHOLD,
+            "entropy_max": DEFAULT_ENTROPY_THRESHOLD,
+        },
+    }
+
+
+@lru_cache(maxsize=1)
+def _load_calibration_metadata() -> dict:
+    model_keys = {
+        "EfficientNet-B0": "efficientnet_b0",
+        "MobileNetV2": "mobilenet_v2",
+    }
+    defaults = {model_name: _default_calibration() for model_name in model_keys}
+    report_path = _model_path("training_report.json")
+    if not report_path.exists():
+        logger.warning(
+            "No training_report.json found in %s. Using default calibration thresholds.",
+            report_path.parent,
+        )
+        return defaults
+
+    try:
+        with report_path.open("r", encoding="utf-8") as file:
+            report = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not load model calibration metadata.")
+        return defaults
+
+    calibrated = {}
+    for display_name, report_key in model_keys.items():
+        entry = report.get(report_key) or {}
+        thresholds = entry.get("abstention_thresholds") or {}
+        calibrated[display_name] = {
+            "temperature": float(entry.get("temperature") or 1.0),
+            "thresholds": {
+                "max_prob_min": float(
+                    thresholds.get("max_prob_min") or CONFIDENCE_THRESHOLD
+                ),
+                "margin_min": float(
+                    thresholds.get("margin_min") or DEFAULT_MARGIN_THRESHOLD
+                ),
+                "entropy_max": float(
+                    thresholds.get("entropy_max") or DEFAULT_ENTROPY_THRESHOLD
+                ),
+            },
+        }
+    return calibrated
+
+
 def _build_efficientnet_b0() -> nn.Module:
     model = models.efficientnet_b0(weights=None)
     model.classifier = nn.Sequential(
@@ -255,6 +317,7 @@ def get_model_bundle() -> dict:
                 device,
             ),
         },
+        "calibration": _load_calibration_metadata(),
     }
 
 
@@ -299,13 +362,16 @@ def _prediction_from_index(index: int, probability: float) -> dict:
 
 def _green_ratio(image: Image.Image) -> float:
     resized = image.resize((224, 224))
-    pixels = list(resized.getdata())
-    green_pixels = sum(
-        1
-        for red, green, blue in pixels
-        if green > 60 and green > red * 1.12 and green > blue * 1.08
+    pixels = np.asarray(resized, dtype=np.float32)
+    red = pixels[:, :, 0]
+    green = pixels[:, :, 1]
+    blue = pixels[:, :, 2]
+    green_mask = (
+        (green > 60)
+        & (green > red * 1.12)
+        & (green > blue * 1.08)
     )
-    return green_pixels / len(pixels)
+    return float(green_mask.mean())
 
 
 def _detect_leaf_image(bundle: dict, image: Image.Image) -> dict:
@@ -363,19 +429,43 @@ def _detect_leaf_image(bundle: dict, image: Image.Image) -> dict:
     }
 
 
-def _predict_model(model: nn.Module, model_name: str, image_tensor: torch.Tensor) -> dict:
+def _predict_model(
+    model: nn.Module,
+    model_name: str,
+    image_tensor: torch.Tensor,
+    calibration: dict,
+) -> dict:
+    model_calibration = calibration.get(model_name) or _default_calibration()
+    temperature = max(float(model_calibration["temperature"]), 0.01)
+    thresholds = model_calibration["thresholds"]
     with torch.no_grad():
-        probabilities = torch.softmax(model(image_tensor), dim=1)[0]
+        logits = model(image_tensor)
+        probabilities = torch.softmax(logits / temperature, dim=1)[0]
+    entropy = -torch.sum(probabilities * torch.log(probabilities.clamp_min(1e-8)))
+    normalized_entropy = float(entropy.item() / torch.log(torch.tensor(len(CLASS_NAMES))).item())
     top_probabilities, top_indices = torch.topk(probabilities, k=3)
     top_k = [
         _prediction_from_index(int(index), float(probability))
         for probability, index in zip(top_probabilities.cpu(), top_indices.cpu())
     ]
     top_prediction = top_k[0]
+    confidence_margin = top_k[0]["confidence"] - top_k[1]["confidence"]
     return {
         "modelName": model_name,
         **top_prediction,
-        "confident": top_prediction["confidence"] >= CONFIDENCE_THRESHOLD,
+        "confident": (
+            top_prediction["confidence"] >= thresholds["max_prob_min"]
+            and confidence_margin >= thresholds["margin_min"]
+            and normalized_entropy <= thresholds["entropy_max"]
+        ),
+        "confidenceMargin": round(float(confidence_margin), 4),
+        "entropy": round(float(normalized_entropy), 4),
+        "temperature": round(float(temperature), 4),
+        "thresholds": {
+            "maxProbMin": round(float(thresholds["max_prob_min"]), 4),
+            "marginMin": round(float(thresholds["margin_min"]), 4),
+            "entropyMax": round(float(thresholds["entropy_max"]), 4),
+        },
         "topK": top_k,
     }
 
@@ -390,29 +480,99 @@ def _recommendation_for(predictions: list[dict], status: str) -> str:
     )
 
 
+def _diagnosis_state(predictions: list[dict], same_top_class: bool) -> dict:
+    all_confident = all(prediction["confident"] for prediction in predictions)
+
+    if same_top_class and all_confident:
+        return {
+            "diagnosisState": "confident",
+            "diagnosisStateLabel": "Confident",
+            "diagnosisReason": (
+                "Both models agree, confidence is high, and the top class is clearly separated."
+            ),
+        }
+
+    return {
+        "diagnosisState": "uncertain_need_more_photos",
+        "diagnosisStateLabel": "Uncertain - add another photo",
+        "diagnosisReason": (
+            "The model output is not stable enough for a final diagnosis. Add a closer "
+            "leaf photo, a leaf-back photo, or an environment photo before treating."
+        ),
+    }
+
+
+def _out_of_scope_response(filename: str, image: Image.Image, leaf_validation: dict) -> dict:
+    recommendation = (
+        "This image does not look like a clear supported crop leaf. Take a close-up "
+        "photo of one leaf in bright, even lighting, with the leaf filling most of "
+        "the frame."
+    )
+    return {
+        "fileName": filename,
+        "imageSize": {"width": image.width, "height": image.height},
+        "leafValidation": leaf_validation,
+        "cropType": "Out of scope",
+        "condition": "Not a clear crop leaf",
+        "confidenceScore": 0,
+        "confidencePercent": 0,
+        "status": "Review needed",
+        "diagnosisState": "out_of_scope",
+        "diagnosisStateLabel": "Out of scope",
+        "diagnosisReason": (
+            "The leaf gate could not verify enough plant signal for diagnosis."
+        ),
+        "recommendation": recommendation,
+        "recommendationDetails": {
+            "headline": "Retake the leaf photo",
+            "urgency": "low",
+            "overview": recommendation,
+            "immediateSteps": [
+                "Use a close-up photo with one main leaf.",
+                "Avoid busy soil, sky, hands, tools, or multiple plants in the background.",
+                "If symptoms are on the leaf underside, capture the underside separately.",
+            ],
+            "productCategories": [],
+            "productRecommendations": [],
+            "cautions": [
+                "Do not treat the plant from this image because it is outside the supported diagnosis path.",
+            ],
+            "followUp": "Upload a clearer crop leaf image and run the scan again.",
+        },
+        "predictions": [],
+    }
+
+
 def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     bundle = get_model_bundle()
     leaf_validation = _detect_leaf_image(bundle, image)
     if not leaf_validation["isLeaf"]:
-        raise ValueError(
-            "This image does not appear to be a clear leaf photo. Upload a close-up "
-            "image of one leaf in good lighting."
-        )
+        return _out_of_scope_response(filename, image, leaf_validation)
 
     device = bundle["device"]
     image_tensor = IMAGE_TRANSFORM(image).unsqueeze(0).to(device)
 
     predictions = [
-        _predict_model(model, model_name, image_tensor)
+        _predict_model(model, model_name, image_tensor, bundle["calibration"])
         for model_name, model in bundle["models"].items()
     ]
     same_top_class = len({prediction["className"] for prediction in predictions}) == 1
-    all_confident = all(prediction["confident"] for prediction in predictions)
-    status = "High confidence" if same_top_class and all_confident else "Review needed"
+    diagnosis_state = _diagnosis_state(predictions, same_top_class)
+    status = (
+        "High confidence"
+        if diagnosis_state["diagnosisState"] == "confident"
+        else "Review needed"
+    )
 
     best_prediction = max(predictions, key=lambda prediction: prediction["confidence"])
     fallback_recommendation = _recommendation_for(predictions, status)
+    display_crop = best_prediction["crop"]
+    display_condition = best_prediction["disease"]
+    if status != "High confidence":
+        display_crop = display_crop if same_top_class else "Multiple possibilities"
+        display_condition = "Needs clearer photo"
+
     recommendation, recommendation_details = generate_recommendation(
         crop=best_prediction["crop"],
         disease=best_prediction["disease"],
@@ -425,12 +585,194 @@ def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
         "fileName": filename,
         "imageSize": {"width": image.width, "height": image.height},
         "leafValidation": leaf_validation,
-        "cropType": best_prediction["crop"],
-        "condition": best_prediction["disease"],
+        "cropType": display_crop,
+        "condition": display_condition,
         "confidenceScore": best_prediction["confidence"],
         "confidencePercent": best_prediction["confidencePercent"],
         "status": status,
+        **diagnosis_state,
         "recommendation": recommendation,
         "recommendationDetails": recommendation_details,
         "predictions": predictions,
+    }
+
+
+def _multi_photo_uncertain_recommendation() -> tuple[str, dict]:
+    recommendation = (
+        "The photos do not agree enough for a treatment recommendation. Add one "
+        "close-up symptom photo, one leaf-back photo, and one wider plant photo before "
+        "applying any product."
+    )
+    return recommendation, {
+        "headline": "Add another photo before treating",
+        "urgency": "medium",
+        "overview": recommendation,
+        "immediateSteps": [
+            "Capture the most damaged leaf close up.",
+            "Capture the underside of the same leaf if possible.",
+            "Capture a wider photo showing the plant and nearby leaves.",
+        ],
+        "productCategories": [],
+        "productRecommendations": [],
+        "cautions": [
+            "Do not buy or apply disease-specific products until the photos converge.",
+            "If disease is spreading quickly, contact a local extension office.",
+        ],
+        "followUp": (
+            "Run the scan again with multiple angles so CropScan can separate disease, "
+            "lighting, and background effects."
+        ),
+    }
+
+
+def _tag_photo_predictions(photo_result: dict) -> list[dict]:
+    photo_index = photo_result["photoIndex"]
+    tagged_predictions = []
+    for prediction in photo_result.get("predictions") or []:
+        tagged_predictions.append(
+            {
+                **prediction,
+                "modelName": f"Photo {photo_index}: {prediction['modelName']}",
+                "photoIndex": photo_index,
+                "photoFileName": photo_result["fileName"],
+            }
+        )
+    return tagged_predictions
+
+
+def predict_leaf_images(image_payloads: list[tuple[bytes, str]]) -> dict:
+    if not image_payloads:
+        raise ValueError("Upload at least one leaf image.")
+    if len(image_payloads) > 3:
+        raise ValueError("Upload at most three leaf images for one diagnosis.")
+
+    photo_results = []
+    for photo_index, (image_bytes, filename) in enumerate(image_payloads, start=1):
+        result = predict_leaf_image(image_bytes, filename)
+        result["photoIndex"] = photo_index
+        photo_results.append(result)
+
+    if len(photo_results) == 1:
+        single_result = photo_results[0]
+        return {
+            **single_result,
+            "photoCount": 1,
+            "photoResults": photo_results,
+        }
+
+    valid_photo_results = [
+        photo_result for photo_result in photo_results if photo_result.get("predictions")
+    ]
+    tagged_predictions = [
+        prediction
+        for photo_result in photo_results
+        for prediction in _tag_photo_predictions(photo_result)
+    ]
+
+    if not valid_photo_results:
+        recommendation, recommendation_details = _multi_photo_uncertain_recommendation()
+        return {
+            "fileName": f"{len(photo_results)} photos",
+            "imageSize": photo_results[0].get("imageSize"),
+            "leafValidation": {
+                "photoCount": len(photo_results),
+                "validLeafPhotos": 0,
+                "outOfScopePhotos": len(photo_results),
+            },
+            "photoCount": len(photo_results),
+            "photoResults": photo_results,
+            "cropType": "Out of scope",
+            "condition": "Not clear crop leaves",
+            "confidenceScore": 0,
+            "confidencePercent": 0,
+            "status": "Review needed",
+            "diagnosisState": "out_of_scope",
+            "diagnosisStateLabel": "Out of scope",
+            "diagnosisReason": "None of the uploaded photos passed the leaf-image gate.",
+            "recommendation": recommendation,
+            "recommendationDetails": recommendation_details,
+            "predictions": [],
+        }
+
+    photo_best_predictions = []
+    for photo_result in valid_photo_results:
+        best_prediction = max(
+            photo_result["predictions"],
+            key=lambda prediction: prediction["confidence"],
+        )
+        photo_best_predictions.append((photo_result, best_prediction))
+
+    class_counts = Counter(
+        prediction["className"] for _photo_result, prediction in photo_best_predictions
+    )
+    winning_class, winning_count = class_counts.most_common(1)[0]
+    winning_pairs = [
+        (photo_result, prediction)
+        for photo_result, prediction in photo_best_predictions
+        if prediction["className"] == winning_class
+    ]
+    best_photo_result, best_prediction = max(
+        winning_pairs,
+        key=lambda pair: pair[1]["confidence"],
+    )
+    average_confidence_percent = sum(
+        prediction["confidencePercent"] for _photo_result, prediction in winning_pairs
+    ) / len(winning_pairs)
+    required_agreement = len(valid_photo_results) if len(valid_photo_results) <= 2 else 2
+    has_photo_agreement = winning_count >= required_agreement
+    all_photos_are_leaf_photos = len(valid_photo_results) == len(photo_results)
+    is_confident = (
+        has_photo_agreement
+        and all_photos_are_leaf_photos
+        and average_confidence_percent >= CONFIDENCE_THRESHOLD * 100
+    )
+    status = "High confidence" if is_confident else "Review needed"
+
+    if is_confident:
+        recommendation = best_photo_result["recommendation"]
+        recommendation_details = best_photo_result["recommendationDetails"]
+        diagnosis_state = {
+            "diagnosisState": "confident",
+            "diagnosisStateLabel": "Confident multi-photo match",
+            "diagnosisReason": (
+                f"{winning_count} of {len(valid_photo_results)} leaf photos converge on "
+                f"{best_prediction['crop']} - {best_prediction['disease']}."
+            ),
+        }
+        crop_type = best_prediction["crop"]
+        condition = best_prediction["disease"]
+    else:
+        recommendation, recommendation_details = _multi_photo_uncertain_recommendation()
+        diagnosis_state = {
+            "diagnosisState": "uncertain_need_more_photos",
+            "diagnosisStateLabel": "Uncertain multi-photo result",
+            "diagnosisReason": (
+                f"{winning_count} of {len(valid_photo_results)} leaf photos point to the "
+                "same class, which is not stable enough for treatment guidance."
+            ),
+        }
+        crop_type = (
+            best_prediction["crop"] if has_photo_agreement else "Multiple possibilities"
+        )
+        condition = "Needs clearer photo set"
+
+    return {
+        "fileName": f"{len(photo_results)} photos",
+        "imageSize": photo_results[0].get("imageSize"),
+        "leafValidation": {
+            "photoCount": len(photo_results),
+            "validLeafPhotos": len(valid_photo_results),
+            "outOfScopePhotos": len(photo_results) - len(valid_photo_results),
+        },
+        "photoCount": len(photo_results),
+        "photoResults": photo_results,
+        "cropType": crop_type,
+        "condition": condition,
+        "confidenceScore": round(average_confidence_percent / 100, 4),
+        "confidencePercent": round(average_confidence_percent, 2),
+        "status": status,
+        **diagnosis_state,
+        "recommendation": recommendation,
+        "recommendationDetails": recommendation_details,
+        "predictions": tagged_predictions,
     }

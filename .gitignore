@@ -17,3 +17,8 @@ dist/
 
 # Model weights (large binary files)
 *.pth
+
+# Service-account / cloud credentials (NEVER commit)
+backend/credentials/
+*.serviceaccount.json
+sa.json

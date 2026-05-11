@@ -70,16 +70,34 @@ download those pretrained weights if they are not already cached on the machine.
 ## Environment Variables
 
 ```env
+ENVIRONMENT=development
 MONGODB_URL=mongodb+srv://<username>:<password>@cluster.mongodb.net/cropscan
 MONGODB_DB_NAME=cropscan
-JWT_SECRET_KEY=replace-with-a-long-random-secret
+JWT_SECRET_KEY=replace-with-secrets-token-urlsafe-48-or-another-32-plus-character-secret
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
+PREDICTION_TOKEN_EXPIRE_MINUTES=30
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 MODEL_DIR=models
 GEMINI_API_KEY=replace-with-your-gemini-api-key
 GEMINI_MODEL=gemini-2.5-flash
+RESEND_API_KEY=replace-with-your-resend-api-key
+RESEND_FROM_EMAIL=CropScan <onboarding@yourdomain.com>
+APP_BASE_URL=http://localhost:5173
+PASSWORD_RESET_OTP_EXPIRE_MINUTES=10
+EMAIL_DEBUG_OTP=false
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_STORAGE_URI=
+TRUST_PROXY_HEADERS=false
+PASSWORD_RESET_RESPONSE_DELAY_SECONDS=0.3
+PASSWORD_RESET_MAX_ATTEMPTS=5
+PASSWORD_RESET_LOCKOUT_MINUTES=60
+MAX_SCANS_PER_USER=2000
+MAX_PLOTS_PER_USER=50
 ```
+
+Set `RATE_LIMIT_STORAGE_URI` to a Redis-compatible URL, such as Upstash Redis, in production. Leaving it blank is only suitable for local development or a single backend worker.
+Set `TRUST_PROXY_HEADERS=true` only when the backend is deployed behind a trusted proxy such as Render. Leave it `false` for local Docker and direct uvicorn runs.
 
 ## Endpoints
 
@@ -88,14 +106,13 @@ GEMINI_MODEL=gemini-2.5-flash
 - `GET /api/v1/auth/me`
 - `PATCH /api/v1/auth/me`
 - `POST /api/v1/auth/change-password`
+- `POST /api/v1/auth/forgot-password/request`
+- `POST /api/v1/auth/forgot-password/confirm`
 - `POST /api/v1/upload`
 - `POST /api/v1/chat`
-- `POST /upload`
 - `GET /health`
 
 Use `Authorization: Bearer <token>` for protected routes, including upload.
-
-`POST /upload` is kept as a compatibility route. The main frontend uses `POST /api/v1/upload`.
 
 ## Verification
 
