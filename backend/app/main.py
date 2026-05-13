@@ -66,7 +66,6 @@ app.add_middleware(
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(scan_router, prefix=settings.api_prefix)
 app.include_router(upload_router, prefix=settings.api_prefix)
-app.include_router(scan_router, prefix=settings.api_prefix)
 app.include_router(plot_router, prefix=settings.api_prefix)
 app.include_router(location_router, prefix=settings.api_prefix)
 app.include_router(walk_router, prefix=settings.api_prefix)

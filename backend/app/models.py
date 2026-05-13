@@ -210,7 +210,9 @@ class ScanCreate(BaseModel):
 
 
 class ScanUpdate(BaseModel):
-    notes: str = Field(default="", max_length=2000)
+    notes: str | None = Field(default=None, max_length=2000)
+    status: Literal["High confidence", "Review needed"] | None = None
+    reviewed: bool | None = None
 
 
 class ScanResponse(BaseModel):
@@ -240,6 +242,7 @@ class ScanResponse(BaseModel):
     predictions: list[PersistedPrediction] = Field(default_factory=list)
     photoResults: list[dict[str, Any]] = Field(default_factory=list)
     notes: str = ""
+    reviewedAt: datetime | None = None
     createdAt: datetime
     updatedAt: datetime
 
