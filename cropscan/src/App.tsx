@@ -14,6 +14,7 @@ const ScanPage = lazy(() => import('./components/ScanPage'))
 const WalkScanPage = lazy(() => import('./components/WalkScanPage'))
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const PlotsPage = lazy(() => import('./components/PlotsPage'))
+const PlotDetailPage = lazy(() => import('./components/PlotDetailPage'))
 const Profile = lazy(() => import('./components/Profile'))
 const NotFound = lazy(() => import('./components/NotFound'))
 
@@ -79,6 +80,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <PlotsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/plots/:plotId"
+                element={
+                  <ProtectedRoute>
+                    <PlotDetailPage />
                   </ProtectedRoute>
                 }
               />

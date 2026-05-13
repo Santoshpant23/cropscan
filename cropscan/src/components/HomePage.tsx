@@ -351,8 +351,9 @@ function PlotCard({
   const isHeat = card?.signals.heatStress ?? false
   const SourceIcon = isHeat ? ThermometerSun : Sun
   return (
-    <article
-      className="crop-fade-up rounded-lg border border-stroke bg-surface p-4 transition hover:shadow-sm"
+    <Link
+      to={`/plots/${plot.id}`}
+      className="crop-fade-up block rounded-lg border border-stroke bg-surface p-4 transition hover:shadow-sm"
       style={{ animationDelay: `${index * 60}ms` }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -406,14 +407,13 @@ function PlotCard({
         </div>
       ) : null}
 
-      <Link
-        to="/plots"
+      <span
         className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-leaf-700 hover:text-forest-900"
       >
         View details
         <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
-      </Link>
-    </article>
+      </span>
+    </Link>
   )
 }
 
