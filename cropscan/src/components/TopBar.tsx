@@ -11,6 +11,7 @@ const TITLES: Record<string, string> = {
   '/login': 'Log in',
   '/signup': 'Create account',
   '/forgot-password': 'Reset password',
+  '/supported-plants': 'Supported plants',
 }
 
 const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -144,6 +145,9 @@ function TopBar({ onOpenGuide }: Props) {
               </NavLink>
               <NavLink to="/login" className={desktopLinkClass}>
                 Log in
+              </NavLink>
+              <NavLink to="/supported-plants" className={desktopLinkClass}>
+                Plants
               </NavLink>
             </>
           )}
