@@ -1,5 +1,6 @@
 # Claude Code context file — keep local only
 CLAUDE.md
+.claude/
 
 # macOS
 .DS_Store

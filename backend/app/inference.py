@@ -102,8 +102,8 @@ LEAF_DETECTOR_KEYWORDS = {
 
 IMAGE_TRANSFORM = transforms.Compose(
     [
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+        transforms.Resize(312),
+        transforms.CenterCrop(280),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ]
@@ -186,8 +186,8 @@ def _default_calibration() -> dict:
 @lru_cache(maxsize=1)
 def _load_calibration_metadata() -> dict:
     model_keys = {
-        "EfficientNet-B0": "efficientnet_b0",
-        "MobileNetV2": "mobilenet_v2",
+        "DINOv2-LoRA": "dinov2_lora_vits14",
+        "EfficientNetV2-S": "efficientnet_v2_s",
     }
     defaults = {model_name: _default_calibration() for model_name in model_keys}
     report_path = _model_path("training_report.json")
@@ -208,7 +208,7 @@ def _load_calibration_metadata() -> dict:
     calibrated = {}
     for display_name, report_key in model_keys.items():
         entry = report.get(report_key) or {}
-        thresholds = entry.get("abstention_thresholds") or {}
+        thresholds = entry.get("thresholds") or entry.get("abstention_thresholds") or {}
         calibrated[display_name] = {
             "temperature": float(entry.get("temperature") or 1.0),
             "thresholds": {
@@ -226,19 +226,70 @@ def _load_calibration_metadata() -> dict:
     return calibrated
 
 
-def _build_efficientnet_b0() -> nn.Module:
-    model = models.efficientnet_b0(weights=None)
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.3),
-        nn.Linear(model.classifier[1].in_features, len(CLASS_NAMES)),
-    )
-    return model
+import math
 
 
-def _build_mobilenet_v2() -> nn.Module:
-    model = models.mobilenet_v2(weights=None)
+class LoRALinear(nn.Module):
+    def __init__(self, base: nn.Linear, r: int = 8, alpha: float = 16.0):
+        super().__init__()
+        self.base = base
+        for parameter in self.base.parameters():
+            parameter.requires_grad = False
+        in_features, out_features = base.in_features, base.out_features
+        self.lora_A = nn.Parameter(torch.empty(r, in_features))
+        self.lora_B = nn.Parameter(torch.zeros(out_features, r))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        self.scaling = alpha / r
+
+    def forward(self, x):
+        return self.base(x) + (x @ self.lora_A.t()) @ self.lora_B.t() * self.scaling
+
+
+class DINOv2LoRAClassifier(nn.Module):
+    def __init__(
+        self,
+        num_classes: int,
+        lora_r: int = 8,
+        lora_alpha: float = 16.0,
+        embed_dim: int = 384,
+        hidden: int = 512,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        self.backbone = torch.hub.load(
+            "facebookresearch/dinov2", "dinov2_vits14", skip_validation=True
+        )
+        for parameter in self.backbone.parameters():
+            parameter.requires_grad = False
+        for block in self.backbone.blocks:
+            block.attn.qkv = LoRALinear(block.attn.qkv, r=lora_r, alpha=lora_alpha)
+            block.attn.proj = LoRALinear(block.attn.proj, r=lora_r, alpha=lora_alpha)
+        self.backbone.eval()
+        self.head = nn.Sequential(
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden, num_classes),
+        )
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.backbone.eval()
+        return self
+
+    def forward(self, x):
+        return self.head(self.backbone(x))
+
+
+def _build_dinov2_lora_vits14() -> nn.Module:
+    return DINOv2LoRAClassifier(len(CLASS_NAMES))
+
+
+def _build_efficientnet_v2_s() -> nn.Module:
+    model = models.efficientnet_v2_s(weights=None)
     model.classifier = nn.Sequential(
-        nn.Dropout(0.3),
+        nn.Dropout(0.3, inplace=True),
         nn.Linear(model.classifier[1].in_features, len(CLASS_NAMES)),
     )
     return model
@@ -306,14 +357,14 @@ def get_model_bundle() -> dict:
         "device": device,
         "leafDetector": _build_leaf_detector(device),
         "models": {
-            "EfficientNet-B0": _load_state_dict(
-                _build_efficientnet_b0(),
-                _model_path("efficientnet_b0_cropscan.pth"),
+            "DINOv2-LoRA": _load_state_dict(
+                _build_dinov2_lora_vits14(),
+                _model_path("dinov2_lora_vits14_cropscan_v5.pth"),
                 device,
             ),
-            "MobileNetV2": _load_state_dict(
-                _build_mobilenet_v2(),
-                _model_path("mobilenetv2_cropscan.pth"),
+            "EfficientNetV2-S": _load_state_dict(
+                _build_efficientnet_v2_s(),
+                _model_path("efficientnet_v2_s_cropscan_v5.pth"),
                 device,
             ),
         },
