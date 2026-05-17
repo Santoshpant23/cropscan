@@ -28,7 +28,12 @@ jobs:
           cache: npm
           cache-dependency-path: cropscan/package-lock.json
 
-      - run: npm ci
+      - name: Install dependencies
+        # Using `npm install` (not `npm ci`) to work around an npm peer/optional
+        # dep mismatch in @tailwindcss/oxide-wasm32-wasi that trips `npm ci`
+        # when the lockfile is generated on Windows and consumed on Linux.
+        # Top-level versions are still pinned via package-lock.json.
+        run: npm install --no-audit --no-fund
 
       - name: Lint
         run: npm run lint
