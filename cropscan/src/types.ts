@@ -112,6 +112,9 @@ export type AnalysisRecord = {
   recommendation: string
   recommendationDetails?: RecommendationDetails
   notes: string
+  accurate?: boolean | null
+  consented_for_training?: boolean
+  image_url?: string | null
   reviewedAt?: string | null
   photoResults?: PhotoResult[]
   predictions: ModelPrediction[]
@@ -150,8 +153,16 @@ export type ScanResponse = {
   diagnosisReason?: string
   photoResults?: PhotoResult[]
   notes?: string
+  accurate?: boolean | null
+  consented_for_training?: boolean
+  image_url?: string | null
   reviewedAt?: string | null
   updatedAt?: string
+}
+
+export type ScanFeedbackRequest = {
+  accurate: boolean
+  consented_for_training: boolean
 }
 
 export type AuthUserResponse = {
@@ -286,6 +297,7 @@ export type GeocodeAddressResponse = {
 export type WalkFrameInput = {
   index: number
   timestampMs: number
+  capturedAt: string
   dataUrl: string
 }
 
@@ -297,11 +309,15 @@ export type WalkAnalyzeRequest = {
 export type WalkFrameResult = {
   index: number
   timestampMs: number
+  capturedAt?: string | null
   status: 'ok' | 'calibration' | 'low_plant_signal' | 'too_blurry' | 'decode_failed' | string
   anomalyScore: number | null
   level: 'low' | 'medium' | 'high' | null
   greenRatio: number
   blurScore: number
+  leafDetected?: boolean
+  leafConfidence?: number | null
+  leafLabel?: string | null
 }
 
 export type WalkAnalyzeResponse = {

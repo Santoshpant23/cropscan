@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     max_scans_per_user: int = Field(2000, alias="MAX_SCANS_PER_USER")
     max_plots_per_user: int = Field(50, alias="MAX_PLOTS_PER_USER")
     skip_db_init: bool = Field(False, alias="SKIP_DB_INIT")
+    aws_access_key_id: str | None = Field(default=None, alias="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: str | None = Field(
+        default=None, alias="AWS_SECRET_ACCESS_KEY"
+    )
+    aws_region: str | None = Field(default=None, alias="AWS_REGION")
+    s3_bucket_name: str | None = Field(default=None, alias="S3_BUCKET_NAME")
 
     model_config = SettingsConfigDict(
         env_file=".env",

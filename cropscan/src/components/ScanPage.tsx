@@ -20,6 +20,7 @@ import {
   diagnosisChatRequest,
   getPlotsRequest,
   saveScanRequest,
+  submitScanFeedbackRequest,
   uploadLeafRequest,
 } from '../lib/api'
 import { getDiseaseDisplay } from '../lib/diseaseInfo'
@@ -61,6 +62,7 @@ const PRODUCT_PRIORITY_STYLES = {
 }
 
 type CaptureMode = 'upload' | 'camera'
+type FeedbackChoice = 'accurate' | 'inaccurate'
 
 function distanceMeters(
   firstLatitude: number,
@@ -273,6 +275,11 @@ function ScanPage() {
   const [cameraError, setCameraError] = useState('')
   const [error, setError] = useState('')
   const [scanNotice, setScanNotice] = useState('')
+  const [feedbackChoice, setFeedbackChoice] = useState<FeedbackChoice | null>(null)
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false)
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
+  const [feedbackError, setFeedbackError] = useState('')
+  const [feedbackNotice, setFeedbackNotice] = useState('')
   const usedQuestionCount = chatMessages.filter(
     (message) => message.role === 'user',
   ).length
@@ -397,6 +404,11 @@ function ScanPage() {
     setChatInput('')
     setChatError('')
     setScanNotice('')
+    setFeedbackChoice(null)
+    setIsFeedbackModalOpen(false)
+    setIsSubmittingFeedback(false)
+    setFeedbackError('')
+    setFeedbackNotice('')
   }
 
   async function setSelectedImages(files: File[]) {
@@ -582,6 +594,9 @@ function ScanPage() {
 
         const firstRecord = savedRecords[0]
         setLatestRecord(firstRecord)
+        setFeedbackChoice(null)
+        setFeedbackError('')
+        setFeedbackNotice('')
         setChatMessages([
           {
             role: 'assistant',
@@ -621,6 +636,9 @@ function ScanPage() {
         )
       }
       setLatestRecord(record)
+      setFeedbackChoice(null)
+      setFeedbackError('')
+      setFeedbackNotice('')
       setChatMessages([
         {
           role: 'assistant',
@@ -681,6 +699,55 @@ function ScanPage() {
     } finally {
       setIsSendingChat(false)
     }
+  }
+
+  async function submitFeedback(accurate: boolean, consentedForTraining: boolean) {
+    if (!latestRecord || !token || isSubmittingFeedback) return
+
+    setIsSubmittingFeedback(true)
+    setFeedbackError('')
+    try {
+      const updatedRecord = await submitScanFeedbackRequest(
+        latestRecord.id,
+        {
+          accurate,
+          consented_for_training: consentedForTraining,
+        },
+        token,
+      )
+      setLatestRecord(updatedRecord)
+      saveAnalysis(updatedRecord)
+      setFeedbackChoice(accurate ? 'accurate' : 'inaccurate')
+      setIsFeedbackModalOpen(false)
+      setFeedbackNotice(
+        consentedForTraining
+          ? 'Thanks. This image was saved anonymously for training review.'
+          : 'Thanks. Your feedback was saved.',
+      )
+    } catch (caughtError) {
+      setFeedbackError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Could not save feedback right now.',
+      )
+    } finally {
+      setIsSubmittingFeedback(false)
+    }
+  }
+
+  function handleDiagnosisAccurate() {
+    void submitFeedback(true, false)
+  }
+
+  function handleDiagnosisInaccurate() {
+    setFeedbackChoice('inaccurate')
+    setFeedbackNotice('')
+    setFeedbackError('')
+    setIsFeedbackModalOpen(true)
+  }
+
+  function handleDeclineTrainingConsent() {
+    void submitFeedback(false, false)
   }
 
   function handleChatKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -1360,6 +1427,55 @@ function ScanPage() {
                 </p>
               </div>
 
+              <div className="rounded-lg border border-white/15 bg-white p-5 text-forest-700 shadow-sm">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-black text-forest-700">
+                      Was this diagnosis accurate?
+                    </h3>
+                    <p className="mt-1 text-sm leading-6 text-muted">
+                      Your answer helps improve CropScan recommendations.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleDiagnosisAccurate}
+                      disabled={isSubmittingFeedback}
+                      className={`crop-touch inline-flex items-center justify-center rounded-md px-5 text-sm font-bold transition ${
+                        feedbackChoice === 'accurate'
+                          ? 'bg-lime text-forest-900 shadow-sm'
+                          : 'bg-leaf-300/20 text-leaf-700 ring-1 ring-leaf-300/40 hover:bg-leaf-300/30'
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDiagnosisInaccurate}
+                      disabled={isSubmittingFeedback}
+                      className={`crop-touch inline-flex items-center justify-center rounded-md px-5 text-sm font-bold transition ${
+                        feedbackChoice === 'inaccurate'
+                          ? 'bg-forest-700 text-white shadow-sm'
+                          : 'bg-white text-forest-700 ring-1 ring-stroke hover:bg-canvas'
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+                {feedbackNotice ? (
+                  <p className="mt-4 rounded-md bg-leaf-300/20 px-4 py-3 text-sm font-bold text-leaf-700 ring-1 ring-leaf-300/40">
+                    {feedbackNotice}
+                  </p>
+                ) : null}
+                {feedbackError ? (
+                  <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-danger ring-1 ring-red-200">
+                    {feedbackError}
+                  </p>
+                ) : null}
+              </div>
+
               <div className="crop-fade-up rounded-lg border border-white/15 bg-canvas p-4 text-forest-700 shadow-sm sm:p-5">
                 <div className="flex flex-col gap-3 border-b border-stroke pb-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -1531,6 +1647,77 @@ function ScanPage() {
           )}
         </div>
       </div>
+      {isFeedbackModalOpen && latestRecord ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-forest-900/50 px-4 pb-6 pt-10 backdrop-blur-sm sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="training-consent-title"
+          onClick={() => {
+            if (!isSubmittingFeedback) setIsFeedbackModalOpen(false)
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-stroke bg-surface p-5 text-forest-700 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-leaf-500">
+                  Training consent
+                </p>
+                <h2
+                  id="training-consent-title"
+                  className="mt-1 font-display text-xl font-bold"
+                >
+                  Can we use this image to help improve CropScan's accuracy?
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFeedbackModalOpen(false)}
+                disabled={isSubmittingFeedback}
+                className="crop-touch flex items-center justify-center rounded-md bg-surface-2 text-forest-700 transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close training consent"
+              >
+                <X size={20} strokeWidth={2} />
+              </button>
+            </div>
+
+            <p className="mt-4 rounded-lg bg-leaf-300/20 px-4 py-3 text-sm font-bold leading-6 text-leaf-700 ring-1 ring-leaf-300/40">
+              Your image will be stored anonymously and only used for training.
+            </p>
+
+            {feedbackError ? (
+              <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-danger ring-1 ring-red-200">
+                {feedbackError}
+              </p>
+            ) : null}
+
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => submitFeedback(false, true)}
+                disabled={isSubmittingFeedback}
+                className="crop-touch inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-lime px-4 text-sm font-bold text-forest-900 shadow-sm transition hover:bg-lime-soft disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmittingFeedback ? (
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.2} />
+                ) : null}
+                Yes, use my image
+              </button>
+              <button
+                type="button"
+                onClick={handleDeclineTrainingConsent}
+                disabled={isSubmittingFeedback}
+                className="crop-touch inline-flex flex-1 items-center justify-center rounded-md bg-surface-2 px-4 text-sm font-bold text-forest-700 ring-1 ring-stroke transition hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                No thanks
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

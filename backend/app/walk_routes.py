@@ -42,6 +42,7 @@ MAX_DATA_URL_CHARS = 360_000
 class WalkFrame(BaseModel):
     index: int = Field(ge=0, le=200)
     timestampMs: int = Field(ge=0, le=120_000)
+    capturedAt: str | None = Field(default=None, max_length=40)
     dataUrl: str = Field(min_length=32, max_length=MAX_DATA_URL_CHARS)
 
 
@@ -53,11 +54,15 @@ class WalkAnalyzeRequest(BaseModel):
 class WalkFrameResult(BaseModel):
     index: int
     timestampMs: int
+    capturedAt: str | None = None
     status: str
     anomalyScore: float | None
     level: str | None
     greenRatio: float
     blurScore: float
+    leafDetected: bool = False
+    leafConfidence: float | None = None
+    leafLabel: str | None = None
 
 
 class WalkAnalyzeResponse(BaseModel):
@@ -114,7 +119,7 @@ async def analyze_walk_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
                 "Walk Scan model could not be loaded. The first request downloads "
-                "DINOv2 weights and needs internet access."
+                "DINOv2 and YOLO weights and needs internet access."
             ),
         ) from exc
     except Exception as exc:
@@ -145,7 +150,7 @@ async def warmup_walk_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
                 "Walk Scan model could not be loaded. The first call downloads "
-                "DINOv2 weights and needs internet access."
+                "DINOv2 and YOLO weights and needs internet access."
             ),
         ) from exc
     return WalkWarmupResponse(**result)

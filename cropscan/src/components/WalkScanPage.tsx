@@ -62,6 +62,8 @@ const LEVEL_COLOR: Record<string, string> = {
   low_plant_signal: '#cbd5e1',
   too_blurry: '#cbd5e1',
   decode_failed: '#cbd5e1',
+  no_leaf_detected: '#cbd5e1',
+  analysis_failed: '#cbd5e1',
   empty: '#e5e7eb',
 }
 
@@ -73,6 +75,8 @@ const LEVEL_LABEL: Record<string, string> = {
   low_plant_signal: 'Skipped: not enough plant in frame',
   too_blurry: 'Skipped: too blurry',
   decode_failed: 'Skipped: could not read frame',
+  no_leaf_detected: 'Skipped: no leaf detected',
+  analysis_failed: 'Skipped: frame analysis failed',
 }
 
 function colorForFrame(frame: WalkFrameResult): string {
@@ -82,6 +86,17 @@ function colorForFrame(frame: WalkFrameResult): string {
 
 function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
+}
+
+function formatDetectedTime(frame: WalkFrameResult): string {
+  if (!frame.capturedAt) return formatSeconds(frame.timestampMs)
+  const date = new Date(frame.capturedAt)
+  if (Number.isNaN(date.getTime())) return formatSeconds(frame.timestampMs)
+  return `${date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  })} (${formatSeconds(frame.timestampMs)})`
 }
 
 function buildSuspiciousWindows(frames: WalkFrameResult[]): WalkSummaryWindow[] {
@@ -136,7 +151,9 @@ function WalkScanPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const captureIntervalRef = useRef<number | null>(null)
   const phaseTimeoutRef = useRef<number | null>(null)
-  const frameStorageRef = useRef<Map<number, string>>(new Map())
+  const frameStorageRef = useRef<Map<number, { dataUrl: string; capturedAt: string }>>(
+    new Map(),
+  )
   const frameCounterRef = useRef<number>(0)
   const phaseRef = useRef<Phase>('idle')
 
@@ -294,7 +311,10 @@ function WalkScanPage() {
     const dataUrl = canvas.toDataURL('image/jpeg', FRAME_QUALITY)
     const index = frameCounterRef.current
     frameCounterRef.current = index + 1
-    frameStorageRef.current.set(index, dataUrl)
+    frameStorageRef.current.set(index, {
+      dataUrl,
+      capturedAt: new Date().toISOString(),
+    })
     setFrameCount(frameCounterRef.current)
   }
 
@@ -325,9 +345,14 @@ function WalkScanPage() {
     const frames: WalkFrameInput[] = []
     const calibrationCutoffMs = CALIBRATION_SECONDS * 1000
     const calibrationIndexes: number[] = []
-    for (const [index, dataUrl] of frameStorageRef.current.entries()) {
+    for (const [index, frame] of frameStorageRef.current.entries()) {
       const timestampMs = Math.round(index * FRAME_INTERVAL_MS)
-      frames.push({ index, timestampMs, dataUrl })
+      frames.push({
+        index,
+        timestampMs,
+        capturedAt: frame.capturedAt,
+        dataUrl: frame.dataUrl,
+      })
       if (timestampMs < calibrationCutoffMs) {
         calibrationIndexes.push(index)
       }
@@ -352,7 +377,14 @@ function WalkScanPage() {
         token,
       )
       setAnalysis(response)
-      setThumbnails(Object.fromEntries(frameStorageRef.current))
+      setThumbnails(
+        Object.fromEntries(
+          [...frameStorageRef.current.entries()].map(([index, frame]) => [
+            index,
+            frame.dataUrl,
+          ]),
+        ),
+      )
       setPhase('summarizing')
 
       const suspiciousWindows = buildSuspiciousWindows(response.frames)
@@ -405,6 +437,7 @@ function WalkScanPage() {
         JSON.stringify({
           dataUrl,
           sourceTimestampMs: frame.timestampMs,
+          sourceCapturedAt: frame.capturedAt,
         }),
       )
     }
@@ -706,7 +739,7 @@ function WalkScanPage() {
                       key={frame.index}
                       className="h-full flex-1"
                       style={{ backgroundColor: colorForFrame(frame) }}
-                      title={`${formatSeconds(frame.timestampMs)} - ${
+                      title={`${formatDetectedTime(frame)} - ${
                         LEVEL_LABEL[
                           frame.status === 'ok' && frame.level
                             ? frame.level
@@ -741,7 +774,7 @@ function WalkScanPage() {
                           {frameThumbnails[frame.index] ? (
                             <img
                               src={frameThumbnails[frame.index]}
-                              alt={`Frame at ${formatSeconds(frame.timestampMs)}`}
+                              alt={`Frame at ${formatDetectedTime(frame)}`}
                               className="aspect-video w-full object-cover"
                             />
                           ) : (
@@ -760,7 +793,7 @@ function WalkScanPage() {
                         </div>
                         <div className="p-4">
                           <p className="text-xs font-bold uppercase tracking-wide text-muted">
-                            Window @ {formatSeconds(frame.timestampMs)}
+                            Detected at {formatDetectedTime(frame)}
                           </p>
                           <p className="font-display mt-1 text-lg font-bold tracking-tight text-forest-900">
                             Anomaly {((frame.anomalyScore || 0) * 100).toFixed(1)}

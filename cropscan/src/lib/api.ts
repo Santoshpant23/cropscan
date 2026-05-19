@@ -10,6 +10,7 @@ import type {
   PlotTodayCard,
   PlotUpdateRequest,
   ScanResponse,
+  ScanFeedbackRequest,
   UploadResponse,
   UserProfile,
   WalkAnalyzeRequest,
@@ -85,6 +86,9 @@ function toAnalysisRecord(scan: ScanResponse): AnalysisRecord {
     recommendation: scan.recommendation,
     recommendationDetails: scan.recommendationDetails || scan.recommendation_details,
     notes: scan.notes || '',
+    accurate: scan.accurate,
+    consented_for_training: scan.consented_for_training,
+    image_url: scan.image_url,
     reviewedAt: scan.reviewedAt,
     photoResults: scan.photoResults,
     predictions,
@@ -274,6 +278,18 @@ export async function markScanReviewedRequest(scanId: string, token: string) {
     method: 'PATCH',
     token,
     body: JSON.stringify({ reviewed: true }),
+  }).then(toAnalysisRecord)
+}
+
+export async function submitScanFeedbackRequest(
+  scanId: string,
+  payload: ScanFeedbackRequest,
+  token: string,
+) {
+  return requestJson<ScanResponse>(`/scans/${scanId}/feedback`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(payload),
   }).then(toAnalysisRecord)
 }
 

@@ -1,3 +1,7 @@
+import base64
+import logging
+import mimetypes
+import uuid
 from datetime import UTC, datetime
 
 from bson import ObjectId
@@ -5,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
+from app.config import get_settings
 from app.database import get_scans_collection_dependency
 from app.dependencies import get_current_user
-from app.models import ScanCreate, ScanResponse, ScanUpdate
+from app.models import ScanCreate, ScanFeedback, ScanResponse, ScanUpdate
 from app.security import decode_prediction_token
 
 router = APIRouter(prefix="/scans", tags=["scans"])
+logger = logging.getLogger(__name__)
 
 
 def serialize_scan(scan: dict) -> ScanResponse:
@@ -29,6 +35,9 @@ def serialize_scan(scan: dict) -> ScanResponse:
         "recommendationDetails": scan.get("recommendationDetails")
         or scan.get("recommendation_details"),
         "reviewedAt": scan.get("reviewed_at") or scan.get("reviewedAt"),
+        "accurate": scan.get("accurate"),
+        "consented_for_training": scan.get("consented_for_training", False),
+        "image_url": scan.get("image_url"),
         "createdAt": (
             scan.get("created_at") or scan.get("createdAt") or scan.get("timestamp")
         ),
@@ -153,6 +162,132 @@ def update_scan(
             detail="Scan not found.",
         )
 
+    saved_scan = scans_collection.find_one(
+        {"_id": ObjectId(scan_id), "user_id": current_user["_id"]}
+    )
+    if saved_scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan not found.",
+        )
+    return serialize_scan(saved_scan)
+
+
+def upload_misclassified_image_to_s3(scan_id: str, image_data_url: str) -> str:
+    if "," not in image_data_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Saved scan image is not available for training upload.",
+        )
+
+    settings = get_settings()
+    if (
+        not settings.aws_access_key_id
+        or not settings.aws_secret_access_key
+        or not settings.aws_region
+        or not settings.s3_bucket_name
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="S3 training upload is not configured.",
+        )
+
+    metadata, encoded_image = image_data_url.split(",", 1)
+    content_type = "image/jpeg"
+    if metadata.startswith("data:") and ";" in metadata:
+        content_type = metadata[5 : metadata.index(";")] or content_type
+
+    try:
+        image_bytes = base64.b64decode(encoded_image, validate=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Saved scan image could not be decoded for training upload.",
+        ) from exc
+
+    extension = mimetypes.guess_extension(content_type) or ".jpg"
+    object_key = f"misclassified/{scan_id}-{uuid.uuid4().hex}{extension}"
+
+    try:
+        import boto3
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="S3 upload dependency boto3 is not installed.",
+        ) from exc
+
+    try:
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            region_name=settings.aws_region,
+        )
+        s3_client.put_object(
+            Bucket=settings.s3_bucket_name,
+            Key=object_key,
+            Body=image_bytes,
+            ContentType=content_type,
+        )
+    except Exception as exc:  # pragma: no cover - depends on AWS availability
+        logger.exception("Could not upload scan image %s to S3.", scan_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not upload the scan image for training.",
+        ) from exc
+
+    return (
+        f"https://{settings.s3_bucket_name}.s3."
+        f"{settings.aws_region}.amazonaws.com/{object_key}"
+    )
+
+
+@router.patch(
+    "/{scan_id}/feedback",
+    response_model=ScanResponse,
+    response_model_by_alias=False,
+)
+def submit_scan_feedback(
+    scan_id: str,
+    payload: ScanFeedback,
+    current_user: dict = Depends(get_current_user),
+    scans_collection: Collection = Depends(get_scans_collection_dependency),
+) -> ScanResponse:
+    if not ObjectId.is_valid(scan_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan not found.",
+        )
+
+    scan = scans_collection.find_one(
+        {"_id": ObjectId(scan_id), "user_id": current_user["_id"]}
+    )
+    if scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan not found.",
+        )
+
+    updates = {
+        "accurate": payload.accurate,
+        "consented_for_training": payload.consented_for_training,
+        "updated_at": datetime.now(UTC),
+    }
+    if payload.consented_for_training:
+        if payload.accurate:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Training consent is only used for inaccurate diagnoses.",
+            )
+        updates["image_url"] = upload_misclassified_image_to_s3(
+            scan_id,
+            scan.get("imageDataUrl") or "",
+        )
+
+    scans_collection.update_one(
+        {"_id": ObjectId(scan_id), "user_id": current_user["_id"]},
+        {"$set": updates},
+    )
     saved_scan = scans_collection.find_one(
         {"_id": ObjectId(scan_id), "user_id": current_user["_id"]}
     )
