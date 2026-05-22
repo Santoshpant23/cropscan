@@ -1,4 +1,4 @@
-import type { ChangeEvent, KeyboardEvent } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -241,6 +241,7 @@ function ScanPage() {
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [imageDataUrl, setImageDataUrl] = useState('')
   const [imageDataUrls, setImageDataUrls] = useState<string[]>([])
   const [fileName, setFileName] = useState('')
@@ -399,6 +400,33 @@ function ScanPage() {
 
   async function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []).slice(0, 3)
+    if (!files.length) return
+
+    stopCameraStream()
+    await setSelectedImages(files)
+  }
+
+  function handleDragOver(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy'
+    }
+    if (!isDraggingFile) setIsDraggingFile(true)
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLLabelElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return
+    }
+    setIsDraggingFile(false)
+  }
+
+  async function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    setIsDraggingFile(false)
+    const files = Array.from(event.dataTransfer?.files || [])
+      .filter((file) => file.type.startsWith('image/'))
+      .slice(0, 3)
     if (!files.length) return
 
     stopCameraStream()
@@ -719,7 +747,15 @@ function ScanPage() {
           {captureMode === 'upload' ? (
             <label
               htmlFor="leaf-photo"
-              className="group relative mt-6 flex min-h-[19rem] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-stroke bg-canvas p-6 text-center transition hover:border-leaf-700 hover:bg-surface-2"
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`group relative mt-6 flex min-h-[19rem] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed p-6 text-center transition hover:border-leaf-700 hover:bg-surface-2 ${
+                isDraggingFile
+                  ? 'border-leaf-700 bg-surface-2'
+                  : 'border-stroke bg-canvas'
+              }`}
             >
               <span className="crop-viewfinder-bracket crop-viewfinder-bracket--tl" />
               <span className="crop-viewfinder-bracket crop-viewfinder-bracket--tr" />
