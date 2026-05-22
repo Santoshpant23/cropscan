@@ -760,7 +760,6 @@ function ScanPage() {
                 id="leaf-photo"
                 type="file"
                 accept="image/*"
-                capture="environment"
                 multiple
                 className="sr-only"
                 onChange={handleImageChange}
