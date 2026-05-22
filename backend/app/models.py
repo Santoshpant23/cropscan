@@ -268,6 +268,15 @@ class PlotResponse(PlotCreate):
     updatedAt: datetime
 
 
+class PlotDayForecast(BaseModel):
+    date: str
+    lowF: float | None = None
+    highF: float | None = None
+    rainInches: float = Field(default=0.0, ge=0)
+    rainProbability: float = Field(default=0.0, ge=0, le=1)
+    summary: str = "Clear scouting window"
+
+
 class PlotTodaySignals(BaseModel):
     tonightLowF: float | None = None
     todayHighF: float | None = None
@@ -277,6 +286,26 @@ class PlotTodaySignals(BaseModel):
     heatStress: bool = False
     droughtPressure: bool = False
     source: str = "seasonal fallback"
+    nextDays: list[PlotDayForecast] = Field(default_factory=list, max_length=5)
+
+
+class PlotRecentScan(BaseModel):
+    id: str
+    fileName: str
+    createdAt: datetime
+    cropType: str | None = None
+    condition: str | None = None
+    status: str
+    diagnosisState: str | None = None
+    diagnosisStateLabel: str | None = None
+    confidencePercent: float | None = None
+
+
+class PlotRecentScansResponse(BaseModel):
+    plotId: str
+    scans: list[PlotRecentScan] = Field(default_factory=list)
+    needsReviewCount: int = 0
+    totalCount: int = 0
 
 
 class PlotTodayResponse(BaseModel):

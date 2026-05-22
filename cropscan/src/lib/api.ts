@@ -5,6 +5,7 @@ import type {
   DiagnosisChatResponse,
   GeocodedLocation,
   PlotCareGuide,
+  PlotRecentScansResponse,
   PlotTodayCard,
   PlotRecord,
   UploadResponse,
@@ -264,6 +265,20 @@ export async function getPlotCareGuideRequest(plotId: string, token: string) {
     method: 'GET',
     token,
   })
+}
+
+export async function getPlotRecentScansRequest(
+  plotId: string,
+  token: string,
+  limit = 5,
+) {
+  return requestJson<PlotRecentScansResponse>(
+    `/plots/${plotId}/recent-scans?limit=${limit}`,
+    {
+      method: 'GET',
+      token,
+    },
+  )
 }
 
 export async function createPlotRequest(

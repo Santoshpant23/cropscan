@@ -177,6 +177,15 @@ export type GeocodedLocation = {
   source: 'address'
 }
 
+export type PlotDayForecast = {
+  date: string
+  lowF?: number | null
+  highF?: number | null
+  rainInches: number
+  rainProbability: number
+  summary: string
+}
+
 export type PlotTodaySignals = {
   tonightLowF?: number | null
   todayHighF?: number | null
@@ -186,6 +195,26 @@ export type PlotTodaySignals = {
   heatStress: boolean
   droughtPressure: boolean
   source: string
+  nextDays?: PlotDayForecast[]
+}
+
+export type PlotRecentScan = {
+  id: string
+  fileName: string
+  createdAt: string
+  cropType?: string | null
+  condition?: string | null
+  status: string
+  diagnosisState?: string | null
+  diagnosisStateLabel?: string | null
+  confidencePercent?: number | null
+}
+
+export type PlotRecentScansResponse = {
+  plotId: string
+  scans: PlotRecentScan[]
+  needsReviewCount: number
+  totalCount: number
 }
 
 export type PlotTodayCard = {

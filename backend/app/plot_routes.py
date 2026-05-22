@@ -8,11 +8,17 @@ from pymongo.collection import Collection
 
 from app.ai_service import generate_plot_care_guide
 from app.config import get_settings
-from app.database import get_plots_collection_dependency
+from app.database import (
+    get_plots_collection_dependency,
+    get_scans_collection_dependency,
+)
 from app.dependencies import get_current_user
 from app.models import (
     PlotCareGuideResponse,
     PlotCreate,
+    PlotDayForecast,
+    PlotRecentScan,
+    PlotRecentScansResponse,
     PlotResponse,
     PlotTodayResponse,
     PlotTodaySignals,
@@ -100,6 +106,27 @@ def _frost_probability(low_f: float | None) -> float:
     return 0.03
 
 
+def _day_summary(
+    low_f: float | None,
+    high_f: float | None,
+    rain_inches: float,
+    rain_probability: float,
+) -> str:
+    if low_f is not None and low_f <= 32:
+        return "Frost expected"
+    if low_f is not None and low_f <= 38:
+        return "Cold morning"
+    if high_f is not None and high_f >= 95:
+        return "Severe heat"
+    if high_f is not None and high_f >= 88:
+        return "Hot day"
+    if rain_inches >= 0.5 or rain_probability >= 0.7:
+        return "Rain expected"
+    if rain_inches >= 0.1 or rain_probability >= 0.4:
+        return "Showers possible"
+    return "Clear scouting window"
+
+
 def _seasonal_weather_fallback(latitude: float) -> dict:
     month = datetime.now(UTC).month
     if latitude < 0:
@@ -113,12 +140,27 @@ def _seasonal_weather_fallback(latitude: float) -> dict:
     else:
         low_f, high_f, rain_inches, rain_probability = 67.0, 88.0, 0.08, 0.25
 
+    today = datetime.now(UTC).date()
+    next_days = []
+    for offset in range(3):
+        next_days.append(
+            {
+                "date": (today.fromordinal(today.toordinal() + offset)).isoformat(),
+                "low_f": low_f,
+                "high_f": high_f,
+                "rain_inches": rain_inches,
+                "rain_probability": rain_probability,
+                "summary": _day_summary(low_f, high_f, rain_inches, rain_probability),
+            }
+        )
+
     return {
         "tonight_low_f": low_f,
         "today_high_f": high_f,
         "next_rain_inches": rain_inches,
         "rain_probability": rain_probability,
         "source": "seasonal fallback",
+        "next_days": next_days,
     }
 
 
@@ -144,6 +186,37 @@ def _fetch_weather_for_plot(plot: dict) -> dict:
             response = client.get(OPEN_METEO_FORECAST_URL, params=params)
             response.raise_for_status()
         daily = response.json().get("daily") or {}
+        dates = daily.get("time") or []
+        lows = daily.get("temperature_2m_min") or []
+        highs = daily.get("temperature_2m_max") or []
+        precs = daily.get("precipitation_sum") or []
+        probs = daily.get("precipitation_probability_max") or []
+        next_days: list[dict] = []
+        for index in range(min(len(dates), 3)):
+            raw_low = lows[index] if index < len(lows) else None
+            raw_high = highs[index] if index < len(highs) else None
+            raw_prec = precs[index] if index < len(precs) else 0
+            raw_prob = probs[index] if index < len(probs) else 0
+            day_low = float(raw_low) if isinstance(raw_low, int | float) else None
+            day_high = float(raw_high) if isinstance(raw_high, int | float) else None
+            day_rain = (
+                round(float(raw_prec), 2) if isinstance(raw_prec, int | float) else 0.0
+            )
+            day_prob = (
+                round(float(raw_prob) / 100, 2)
+                if isinstance(raw_prob, int | float)
+                else 0.0
+            )
+            next_days.append(
+                {
+                    "date": dates[index],
+                    "low_f": day_low,
+                    "high_f": day_high,
+                    "rain_inches": day_rain,
+                    "rain_probability": day_prob,
+                    "summary": _day_summary(day_low, day_high, day_rain, day_prob),
+                }
+            )
         return {
             "tonight_low_f": _first_number(daily.get("temperature_2m_min")),
             "today_high_f": _first_number(daily.get("temperature_2m_max")),
@@ -152,6 +225,7 @@ def _fetch_weather_for_plot(plot: dict) -> dict:
                 daily.get("precipitation_probability_max")
             ),
             "source": "Open-Meteo",
+            "next_days": next_days,
         }
     except Exception:
         logger.exception("Open-Meteo forecast lookup failed for plot %s.", plot["_id"])
@@ -177,23 +251,7 @@ def _today_card_for_plot(plot: dict) -> PlotTodayResponse:
         crop.lower() in {"tomato", "pepper", "squash", "strawberry", "grape"}
         for crop in crops
     )
-
-
-@router.get("/{plot_id}", response_model=PlotResponse)
-@limiter.limit("60/minute")
-def get_plot(
-    request: Request,
-    plot_id: str,
-    current_user: dict = Depends(get_current_user),
-    plots_collection: Collection = Depends(get_plots_collection_dependency),
-) -> PlotResponse:
-    plot = plots_collection.find_one(_plot_filter(plot_id, current_user))
-    if plot is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Plot was not found.",
-        )
-    return _serialize_plot(plot)
+    next_days = [PlotDayForecast(**day) for day in weather.get("next_days", [])]
 
     if frost_probability >= 0.55 and sensitive_crop:
         risk_level = "high"
@@ -258,9 +316,27 @@ def get_plot(
             heatStress=heat_stress,
             droughtPressure=drought_pressure,
             source=weather["source"],
+            nextDays=next_days,
         ),
         generatedAt=datetime.now(UTC),
     )
+
+
+@router.get("/{plot_id}", response_model=PlotResponse)
+@limiter.limit("60/minute")
+def get_plot(
+    request: Request,
+    plot_id: str,
+    current_user: dict = Depends(get_current_user),
+    plots_collection: Collection = Depends(get_plots_collection_dependency),
+) -> PlotResponse:
+    plot = plots_collection.find_one(_plot_filter(plot_id, current_user))
+    if plot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plot was not found.",
+        )
+    return _serialize_plot(plot)
 
 
 @router.get("", response_model=list[PlotResponse])
@@ -349,6 +425,55 @@ def get_plot_care_guide(
     today_card = _today_card_for_plot(plot).model_dump(mode="json")
     return PlotCareGuideResponse.model_validate(
         generate_plot_care_guide(plot, today_card)
+    )
+
+
+@router.get(
+    "/{plot_id}/recent-scans",
+    response_model=PlotRecentScansResponse,
+)
+@limiter.limit("60/minute")
+def get_plot_recent_scans(
+    request: Request,
+    plot_id: str,
+    limit_count: int = Query(default=5, ge=1, le=20, alias="limit"),
+    current_user: dict = Depends(get_current_user),
+    plots_collection: Collection = Depends(get_plots_collection_dependency),
+    scans_collection: Collection = Depends(get_scans_collection_dependency),
+) -> PlotRecentScansResponse:
+    plot = plots_collection.find_one(_plot_filter(plot_id, current_user))
+    if plot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plot was not found.",
+        )
+
+    user_id = _user_id(current_user)
+    scan_filter = {"user_id": user_id, "plot_id": plot_id}
+    cursor = scans_collection.find(scan_filter).sort("created_at", -1).limit(limit_count)
+    scans = [
+        PlotRecentScan(
+            id=str(scan["_id"]),
+            fileName=scan.get("file_name") or "scan",
+            createdAt=scan["created_at"],
+            cropType=scan.get("crop_type"),
+            condition=scan.get("condition"),
+            status=scan.get("status") or "Review needed",
+            diagnosisState=scan.get("diagnosis_state"),
+            diagnosisStateLabel=scan.get("diagnosis_state_label"),
+            confidencePercent=scan.get("confidence_percent"),
+        )
+        for scan in cursor
+    ]
+    needs_review_count = scans_collection.count_documents(
+        {**scan_filter, "status": "Review needed"}
+    )
+    total_count = scans_collection.count_documents(scan_filter)
+    return PlotRecentScansResponse(
+        plotId=plot_id,
+        scans=scans,
+        needsReviewCount=needs_review_count,
+        totalCount=total_count,
     )
 
 
