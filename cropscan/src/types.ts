@@ -200,6 +200,21 @@ export type PlotTodayCard = {
   generatedAt: string
 }
 
+export type PlotCareGuide = {
+  plotId: string
+  plotName: string
+  crop: string
+  riskLevel: 'low' | 'medium' | 'high'
+  headline: string
+  problemSummary: string
+  careSteps: string[]
+  watchFor: string[]
+  avoid: string[]
+  nextCheck: string
+  signals: PlotTodaySignals
+  generatedAt: string
+}
+
 export type WalkFrameStatus =
   | 'calibration'
   | 'ok'

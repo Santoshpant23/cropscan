@@ -81,6 +81,20 @@ and take a close-up photo for a single-leaf scan). Do not invent disease names.
 Do not promise a diagnosis. Do not mention products or brands.
 """.strip()
 
+PLOT_CARE_SYSTEM_PROMPT = """
+You are CropScan's plot care guide. Turn weather and plot risk data into simple,
+practical instructions for a grower. Do not invent sensor readings, product brands,
+prices, or disease names. Keep the output specific to the provided crop, risk,
+weather signals, and existing action list.
+
+Return only valid JSON with these keys:
+problemSummary: string
+careSteps: array of 3 to 6 short strings
+watchFor: array of 2 to 5 short strings
+avoid: array of 2 to 5 short strings
+nextCheck: string
+""".strip()
+
 
 def _trim_text(value: str, fallback: str, max_length: int) -> str:
     cleaned = " ".join(value.split()).strip()
@@ -606,4 +620,144 @@ def generate_walk_summary(analysis: dict) -> str:
         return fallback
     except Exception:
         logger.exception("Gemini walk summary generation failed. Falling back.")
+        return fallback
+
+
+def _plot_care_fallback(plot: dict, today_card: dict) -> dict:
+    signals = today_card.get("signals") or {}
+    risk_level = today_card.get("riskLevel") or "low"
+    icon = today_card.get("icon") or "scout"
+    actions = list(today_card.get("actions") or [])
+
+    if icon == "frost":
+        summary = (
+            "Cold overnight temperatures may damage tender leaves and new growth. "
+            "The main goal is to protect the plot before sunset and avoid handling wet leaves tomorrow."
+        )
+        watch_for = ["Dark, limp leaves after sunrise", "Water-soaked edges", "New growth that stalls"]
+        avoid = ["Leaving covers on after the day warms", "Pruning frost-damaged tissue too early"]
+        next_check = "Check the plot after temperatures rise tomorrow morning."
+    elif icon == "heat":
+        summary = (
+            "Heat can stress this plot today, especially young plants or containers. "
+            "Focus on soil moisture, shade during the hottest hours, and delaying stressful work."
+        )
+        watch_for = ["Wilting that continues after sunset", "Leaf curl", "Dry soil two inches down"]
+        avoid = ["Pruning in peak heat", "Spraying during strong sun", "Watering only the leaf surface"]
+        next_check = "Check soil moisture again in late afternoon."
+    elif icon == "dry":
+        summary = (
+            "Dry weather may be pulling moisture from the root zone. "
+            "Confirm the soil is actually dry before watering, then water deeply near the base."
+        )
+        watch_for = ["Wilting leaves", "Cracked or dusty soil", "Slow new growth"]
+        avoid = ["Light daily splashing", "Letting mulch touch stems", "Treating wilt as disease without checking soil"]
+        next_check = "Recheck soil moisture tomorrow morning."
+    elif icon == "rain":
+        summary = (
+            "Rain and wet leaves can raise disease pressure and make pruning risky. "
+            "Keep the canopy open and wait for leaves to dry before working the plot."
+        )
+        watch_for = ["New spots two days after rain", "Dense wet growth", "Lower leaves touching soil"]
+        avoid = ["Pruning wet plants", "Crowding leaves", "Overhead watering after rain"]
+        next_check = "Inspect leaves once the rain passes and foliage dries."
+    else:
+        summary = (
+            "Conditions look suitable for a normal scouting pass. "
+            "Use this window to catch early color change, pests, or leaf spots before they spread."
+        )
+        watch_for = ["New leaf spots", "Curling or yellowing", "Pests on leaf undersides"]
+        avoid = ["Spraying without a clear reason", "Ignoring small changes", "Letting notes get stale"]
+        next_check = "Walk the plot again within the next two days."
+
+    if not actions:
+        actions = ["Walk the plot slowly.", "Check new leaves first.", "Scan any leaf that changed color, shape, or texture."]
+
+    return {
+        "plotId": str(plot["_id"]),
+        "plotName": plot["name"],
+        "crop": plot["crop"],
+        "riskLevel": risk_level,
+        "headline": today_card["headline"],
+        "problemSummary": summary,
+        "careSteps": actions[:6],
+        "watchFor": watch_for,
+        "avoid": avoid,
+        "nextCheck": next_check,
+        "signals": signals,
+        "generatedAt": today_card["generatedAt"],
+    }
+
+
+def generate_plot_care_guide(plot: dict, today_card: dict) -> dict:
+    fallback = _plot_care_fallback(plot, today_card)
+    client = get_gemini_client()
+    if client is None:
+        return fallback
+
+    settings = get_settings()
+    prompt = f"""
+Plot:
+{json.dumps({
+    "name": plot.get("name"),
+    "crop": plot.get("crop"),
+    "areaSqFt": plot.get("area_sq_ft"),
+    "locationLabel": plot.get("location_label"),
+    "notes": plot.get("notes") or "",
+}, indent=2)}
+
+Today card:
+{json.dumps(today_card, indent=2, default=str)}
+""".strip()
+
+    try:
+        response = _generate_with_retry(
+            client,
+            model=settings.gemini_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                systemInstruction=PLOT_CARE_SYSTEM_PROMPT,
+                temperature=0.35,
+                maxOutputTokens=520,
+                responseMimeType="application/json",
+            ),
+        )
+        parsed = json.loads(response.text or "{}")
+        return {
+            **fallback,
+            "problemSummary": _trim_text(
+                str(parsed.get("problemSummary") or ""),
+                fallback["problemSummary"],
+                600,
+            ),
+            "careSteps": [
+                _trim_text(str(step), fallback["careSteps"][0], 160)
+                for step in (parsed.get("careSteps") or fallback["careSteps"])[:6]
+                if str(step).strip()
+            ] or fallback["careSteps"],
+            "watchFor": [
+                _trim_text(str(item), "Watch for plant changes.", 120)
+                for item in (parsed.get("watchFor") or fallback["watchFor"])[:5]
+                if str(item).strip()
+            ] or fallback["watchFor"],
+            "avoid": [
+                _trim_text(str(item), "Avoid unnecessary treatment.", 120)
+                for item in (parsed.get("avoid") or fallback["avoid"])[:5]
+                if str(item).strip()
+            ] or fallback["avoid"],
+            "nextCheck": _trim_text(
+                str(parsed.get("nextCheck") or ""),
+                fallback["nextCheck"],
+                180,
+            ),
+        }
+    except genai_errors.ClientError as exc:
+        logger.exception(
+            "Gemini plot care guide failed (code=%s, msg=%s).",
+            getattr(exc, "code", None),
+            (getattr(exc, "message", "") or "")[:300],
+        )
+        return fallback
+    except Exception:
+        logger.exception("Gemini plot care guide failed. Falling back.")
         return fallback

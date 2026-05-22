@@ -4,6 +4,7 @@ import type {
   DiagnosisChatRequest,
   DiagnosisChatResponse,
   GeocodedLocation,
+  PlotCareGuide,
   PlotTodayCard,
   PlotRecord,
   UploadResponse,
@@ -244,8 +245,22 @@ export async function getPlotsRequest(token: string) {
   })
 }
 
+export async function getPlotRequest(plotId: string, token: string) {
+  return requestJson<PlotRecord>(`/plots/${plotId}`, {
+    method: 'GET',
+    token,
+  })
+}
+
 export async function getPlotTodayRequest(plotId: string, token: string) {
   return requestJson<PlotTodayCard>(`/plots/${plotId}/today`, {
+    method: 'GET',
+    token,
+  })
+}
+
+export async function getPlotCareGuideRequest(plotId: string, token: string) {
+  return requestJson<PlotCareGuide>(`/plots/${plotId}/care-guide`, {
     method: 'GET',
     token,
   })

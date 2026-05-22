@@ -1,0 +1,48 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /cropscan
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - frontend
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - backend
+    ignore:
+      # Pin torch/torchvision to the versions the Dockerfile + CPU wheel index expect.
+      # Bumping these needs a coordinated requirements.txt + Dockerfile change.
+      - dependency-name: torch
+      - dependency-name: torchvision
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker
+
+  - package-ecosystem: docker
+    directory: /cropscan
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker

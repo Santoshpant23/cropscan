@@ -11,9 +11,9 @@ function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const [guideOpen, setGuideOpen] = useState(false)
 
-  const isPublicLanding = !isAuthenticated && location.pathname === '/'
+  const showPublicFooter =
+    !isAuthenticated && ['/', '/supported-plants'].includes(location.pathname)
   const showBottomNav = isAuthenticated
-  const showFooter = isPublicLanding
 
   return (
     <div className="min-h-screen bg-canvas text-forest-700">
@@ -27,7 +27,7 @@ function AppShell({ children }: { children: ReactNode }) {
       >
         {children}
       </main>
-      {showFooter ? <Footer /> : null}
+      {showPublicFooter ? <Footer /> : null}
       {showBottomNav ? <BottomNav /> : null}
       <AppGuide open={guideOpen} onOpenChange={setGuideOpen} />
     </div>

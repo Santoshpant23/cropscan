@@ -7,10 +7,12 @@ const TITLES: Record<string, string> = {
   '/walk': 'Walk a row',
   '/dashboard': 'Scan history',
   '/plots': 'Plots',
+  '/plots/:plotId': 'Plot care',
   '/profile': 'Profile',
   '/login': 'Log in',
   '/signup': 'Create account',
   '/forgot-password': 'Reset password',
+  '/supported-plants': 'Supported plants',
 }
 
 const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -31,7 +33,9 @@ function TopBar({ onOpenGuide }: Props) {
   const navigate = useNavigate()
 
   const isHome = location.pathname === '/'
-  const title = TITLES[location.pathname]
+  const title =
+    TITLES[location.pathname] ??
+    (location.pathname.startsWith('/plots/') ? 'Plot care' : undefined)
   const showMobileBack = !isHome
 
   return (
@@ -144,6 +148,9 @@ function TopBar({ onOpenGuide }: Props) {
               </NavLink>
               <NavLink to="/login" className={desktopLinkClass}>
                 Log in
+              </NavLink>
+              <NavLink to="/supported-plants" className={desktopLinkClass}>
+                Plants
               </NavLink>
             </>
           )}

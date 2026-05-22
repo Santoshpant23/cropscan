@@ -6,10 +6,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 import httpx
 from pymongo.collection import Collection
 
+from app.ai_service import generate_plot_care_guide
 from app.config import get_settings
 from app.database import get_plots_collection_dependency
 from app.dependencies import get_current_user
-from app.models import PlotCreate, PlotResponse, PlotTodayResponse, PlotTodaySignals, PlotUpdate
+from app.models import (
+    PlotCareGuideResponse,
+    PlotCreate,
+    PlotResponse,
+    PlotTodayResponse,
+    PlotTodaySignals,
+    PlotUpdate,
+)
 from app.rate_limit import limiter
 
 router = APIRouter(prefix="/plots", tags=["plots"])
@@ -170,6 +178,23 @@ def _today_card_for_plot(plot: dict) -> PlotTodayResponse:
         for crop in crops
     )
 
+
+@router.get("/{plot_id}", response_model=PlotResponse)
+@limiter.limit("60/minute")
+def get_plot(
+    request: Request,
+    plot_id: str,
+    current_user: dict = Depends(get_current_user),
+    plots_collection: Collection = Depends(get_plots_collection_dependency),
+) -> PlotResponse:
+    plot = plots_collection.find_one(_plot_filter(plot_id, current_user))
+    if plot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plot was not found.",
+        )
+    return _serialize_plot(plot)
+
     if frost_probability >= 0.55 and sensitive_crop:
         risk_level = "high"
         icon = "frost"
@@ -304,6 +329,27 @@ def get_plot_today(
             detail="Plot was not found.",
         )
     return _today_card_for_plot(plot)
+
+
+@router.get("/{plot_id}/care-guide", response_model=PlotCareGuideResponse)
+@limiter.limit("30/minute")
+def get_plot_care_guide(
+    request: Request,
+    plot_id: str,
+    current_user: dict = Depends(get_current_user),
+    plots_collection: Collection = Depends(get_plots_collection_dependency),
+) -> PlotCareGuideResponse:
+    plot = plots_collection.find_one(_plot_filter(plot_id, current_user))
+    if plot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plot was not found.",
+        )
+
+    today_card = _today_card_for_plot(plot).model_dump(mode="json")
+    return PlotCareGuideResponse.model_validate(
+        generate_plot_care_guide(plot, today_card)
+    )
 
 
 @router.patch("/{plot_id}", response_model=PlotResponse)

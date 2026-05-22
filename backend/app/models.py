@@ -289,3 +289,18 @@ class PlotTodayResponse(BaseModel):
     actions: list[str] = Field(default_factory=list, max_length=5)
     signals: PlotTodaySignals
     generatedAt: datetime
+
+
+class PlotCareGuideResponse(BaseModel):
+    plotId: str
+    plotName: str
+    crop: str
+    riskLevel: Literal["low", "medium", "high"]
+    headline: str
+    problemSummary: str
+    careSteps: list[str] = Field(default_factory=list, max_length=6)
+    watchFor: list[str] = Field(default_factory=list, max_length=5)
+    avoid: list[str] = Field(default_factory=list, max_length=5)
+    nextCheck: str
+    signals: PlotTodaySignals
+    generatedAt: datetime

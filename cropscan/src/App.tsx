@@ -9,10 +9,12 @@ const HomePage = lazy(() => import('./components/HomePage'))
 const Login = lazy(() => import('./components/Login'))
 const ForgotPassword = lazy(() => import('./components/ForgotPassword'))
 const SignUp = lazy(() => import('./components/SignUp'))
+const SupportedPlants = lazy(() => import('./components/SupportedPlants'))
 const ScanPage = lazy(() => import('./components/ScanPage'))
 const WalkScanPage = lazy(() => import('./components/WalkScanPage'))
 const Dashboard = lazy(() => import('./components/Dashboard'))
 const PlotsPage = lazy(() => import('./components/PlotsPage'))
+const PlotDetailPage = lazy(() => import('./components/PlotDetailPage'))
 const Profile = lazy(() => import('./components/Profile'))
 const NotFound = lazy(() => import('./components/NotFound'))
 
@@ -48,6 +50,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/signup" element={<SignUp />} />
+              <Route path="/supported-plants" element={<SupportedPlants />} />
               <Route
                 path="/scan"
                 element={
@@ -77,6 +80,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <PlotsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/plots/:plotId"
+                element={
+                  <ProtectedRoute>
+                    <PlotDetailPage />
                   </ProtectedRoute>
                 }
               />
