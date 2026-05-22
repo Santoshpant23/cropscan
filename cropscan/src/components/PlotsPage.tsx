@@ -20,6 +20,7 @@ import {
 } from '../lib/api'
 import type { PlotRecord } from '../types'
 import HelpTip from './HelpTip'
+import MapPreview from './MapPreview'
 import PlotVisual from './PlotVisual'
 
 type PlotLocation = {
@@ -451,7 +452,10 @@ function PlotsPage() {
                 {selectedLocation ? (
                   <>
                     <div className="mt-3">
-                      <PlotVisual crop={selectedCrops.join(', ') || 'Garden'} name="Selected spot" />
+                      <MapPreview
+                        latitude={selectedLocation.latitude}
+                        longitude={selectedLocation.longitude}
+                      />
                     </div>
                     <p className="mt-3 rounded-md bg-leaf-300/20 px-3 py-2 text-sm font-bold text-muted">
                       {selectedLocation.label}
