@@ -1,6 +1,6 @@
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   Camera,
@@ -235,6 +235,8 @@ function buildChatRequest(
 
 function ScanPage() {
   const { token, user } = useAuth()
+  const [searchParams] = useSearchParams()
+  const requestedPlotId = searchParams.get('plotId')
   const isAnalyzeRequestInFlight = useRef(false)
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
@@ -330,7 +332,22 @@ function ScanPage() {
   }, [token])
 
   useEffect(() => {
-    if (!plots.length || selectedPlotId || !navigator.geolocation) return
+    if (!requestedPlotId || !plots.length) return
+    const matchedPlot = plots.find((plot) => plot.id === requestedPlotId)
+    if (matchedPlot) {
+      setSelectedPlotId(matchedPlot.id)
+      setAutoPlotNotice(`Scanning for ${matchedPlot.name}`)
+    }
+  }, [requestedPlotId, plots])
+
+  useEffect(() => {
+    if (
+      !plots.length ||
+      selectedPlotId ||
+      requestedPlotId ||
+      !navigator.geolocation
+    )
+      return
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -346,7 +363,7 @@ function ScanPage() {
       () => undefined,
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
     )
-  }, [plots, selectedPlotId])
+  }, [plots, selectedPlotId, requestedPlotId])
 
   function stopCameraStream() {
     if (cameraStreamRef.current) {

@@ -4,6 +4,7 @@ import hashlib
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pymongo.collection import Collection
+from pymongo.errors import DuplicateKeyError
 
 from app.config import get_settings
 from app.database import get_scans_collection_dependency
@@ -175,11 +176,12 @@ def create_scan(
         "crop_type": prediction_result.get("cropType"),
         "condition": prediction_result.get("condition"),
         "confidence_percent": prediction_result.get("confidencePercent"),
-        "status": prediction_result["status"],
+        "status": prediction_result.get("status") or "Review needed",
         "diagnosis_state": prediction_result.get("diagnosisState"),
         "diagnosis_state_label": prediction_result.get("diagnosisStateLabel"),
         "diagnosis_reason": prediction_result.get("diagnosisReason"),
-        "recommendation": prediction_result["recommendation"],
+        "recommendation": prediction_result.get("recommendation")
+        or "Review this scan with a local expert before treating.",
         "recommendation_details": prediction_result.get("recommendationDetails"),
         "predictions": [
             _persisted_prediction(prediction)
@@ -191,7 +193,18 @@ def create_scan(
         "updated_at": now,
     }
 
-    result = scans_collection.insert_one(scan_document)
+    try:
+        result = scans_collection.insert_one(scan_document)
+    except DuplicateKeyError:
+        # A concurrent request (double-tap / retry) already saved this exact
+        # image for this user. The unique (user_id, image_hash) index rejects
+        # the second insert; return the existing scan instead of a 500.
+        existing = scans_collection.find_one(
+            {"user_id": user_id, "image_hash": image_hash}
+        )
+        if existing is not None:
+            return _serialize_scan(existing)
+        raise
     saved_scan = scans_collection.find_one({"_id": result.inserted_id})
 
     return _serialize_scan(saved_scan)
