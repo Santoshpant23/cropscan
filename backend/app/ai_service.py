@@ -10,7 +10,7 @@ from google.genai import types
 
 from app.config import get_settings
 
-FALLBACK_CHAT_PREFIX = "The live assistant is unavailable right now"
+FALLBACK_CHAT_PREFIX = "The chat assistant is resting right now"
 
 # Gemini on Vertex uses Dynamic Shared Quota — short bursts can return 429 even
 # with billing enabled. Retry briefly with exponential backoff before falling
@@ -524,9 +524,9 @@ def _local_chat_fallback(analysis: dict) -> str:
             "before treating."
         )
     return (
-        f"{FALLBACK_CHAT_PREFIX} (likely API quota). Saved guidance for this scan: "
-        f"{saved} You can ask about timing, monitoring, or when to re-scan once the "
-        "live assistant is back."
+        f"{FALLBACK_CHAT_PREFIX}, but your diagnosis is saved and you can still act "
+        f"on it. Guidance for this scan: {saved} Re-open chat in a little while to "
+        "ask follow-ups like treatment timing, spread risk, or when to re-scan."
     )
 
 

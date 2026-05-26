@@ -23,6 +23,12 @@ import {
   uploadLeafRequest,
 } from '../lib/api'
 import { saveAnalysis } from '../lib/storage'
+import {
+  SUPPORTED_CROP_NAMES,
+  cropsMatch,
+  normalizeCropName,
+} from '../lib/supportedCrops'
+import DiseaseExplanation from './DiseaseExplanation'
 import HelpTip from './HelpTip'
 import type {
   AnalysisRecord,
@@ -34,6 +40,7 @@ import type {
 
 const MAX_CHAT_QUESTIONS = 10
 const WALK_HANDOFF_KEY = 'cropscan_walk_handoff'
+const SCAN_CROP_KEY = 'cropscan_scan_crop'
 const QUICK_CHAT_PROMPTS = [
   'Give me a 3-day action plan.',
   'How serious is this?',
@@ -257,6 +264,14 @@ function ScanPage() {
   const [plots, setPlots] = useState<PlotRecord[]>([])
   const [selectedPlotId, setSelectedPlotId] = useState('')
   const [autoPlotNotice, setAutoPlotNotice] = useState('')
+  const [selectedCrop, setSelectedCrop] = useState(() => {
+    try {
+      // Normalize so a stale/unsupported saved value can't desync the <select>.
+      return normalizeCropName(localStorage.getItem(SCAN_CROP_KEY)) || ''
+    } catch {
+      return ''
+    }
+  })
   const [captureMode, setCaptureMode] = useState<CaptureMode>('upload')
   const [isReadingFile, setIsReadingFile] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -695,11 +710,10 @@ function ScanPage() {
         ...currentMessages,
         { role: 'assistant', content: response.answer },
       ])
-    } catch (caughtError) {
+    } catch {
       setChatError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Could not reach the diagnosis assistant.',
+        'The chat assistant did not respond just now. Your diagnosis above is ' +
+          'saved — give it a moment and try asking again.',
       )
     } finally {
       setIsSendingChat(false)
@@ -732,6 +746,49 @@ function ScanPage() {
             For accurate analysis, ensure the leaf is well-lit and placed against a
             neutral background. Direct sunlight preferred.
           </p>
+
+          <details className="group mt-4 rounded-lg border border-stroke bg-white p-4">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-black text-forest-700">
+              <span className="flex items-center gap-2">
+                <Leaf className="h-4.5 w-4.5 text-leaf-700" strokeWidth={2.2} />
+                How to get an accurate scan
+              </span>
+              <span className="text-xs font-bold text-muted group-open:hidden">
+                Show tips
+              </span>
+              <span className="hidden text-xs font-bold text-muted group-open:inline">
+                Hide
+              </span>
+            </summary>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
+              {[
+                'Use one leaf that fills most of the frame — not the whole plant.',
+                'Bright, even light. Avoid harsh shadows, glare, and very dark photos.',
+                'Plain background. Soil, hands, sky, or other leaves can confuse the model.',
+                'Hold steady and let the camera focus before you capture.',
+                'If symptoms are on the underside, add a second photo of the leaf back.',
+                '"Needs review" means the model was not sure — retake closer and brighter. It is being careful, not broken.',
+              ].map((tip) => (
+                <li key={tip} className="flex gap-2">
+                  <CheckCircle2
+                    className="mt-0.5 h-4 w-4 shrink-0 text-leaf-700"
+                    strokeWidth={2.4}
+                  />
+                  <span>{tip}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs leading-5 text-muted">
+              CropScan only recognizes{' '}
+              <Link
+                to="/supported-plants"
+                className="font-bold text-leaf-700 hover:underline"
+              >
+                supported crops
+              </Link>
+              . Photos of other plants may be misread.
+            </p>
+          </details>
 
           <div className="mt-6 grid gap-2 rounded-md bg-surface-2 p-1 sm:grid-cols-2">
             <button
@@ -968,6 +1025,45 @@ function ScanPage() {
             Best results come from one leaf, bright lighting, and a simple background.
           </p>
 
+          <div className="mt-4 rounded-lg bg-white p-3 ring-1 ring-stroke">
+            <label htmlFor="scan-crop" className="text-sm font-black text-forest-700">
+              What are you scanning?{' '}
+              <span className="font-bold text-muted">(optional)</span>
+            </label>
+            <select
+              id="scan-crop"
+              value={selectedCrop}
+              onChange={(event) => {
+                const next = event.target.value
+                setSelectedCrop(next)
+                try {
+                  if (next) localStorage.setItem(SCAN_CROP_KEY, next)
+                  else localStorage.removeItem(SCAN_CROP_KEY)
+                } catch {
+                  // ignore storage failures (private mode, quota, etc.)
+                }
+              }}
+              className="mt-2 min-h-12 w-full cursor-pointer rounded-md border border-stroke bg-white px-3 py-2 text-sm font-bold text-forest-700 outline-none transition focus:border-leaf-500 focus:ring-4 focus:ring-leaf-300/40"
+            >
+              <option value="">I'm not sure / pick a crop</option>
+              {SUPPORTED_CROP_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs leading-5 text-muted">
+              Telling us the crop lets CropScan warn you if the photo looks like a
+              different plant.{' '}
+              <Link
+                to="/supported-plants"
+                className="font-bold text-leaf-700 hover:underline"
+              >
+                See supported crops
+              </Link>
+            </p>
+          </div>
+
           {plots.length > 0 ? (
             <div className="mt-4 rounded-lg bg-white p-3 ring-1 ring-stroke">
               <label
@@ -1161,6 +1257,12 @@ function ScanPage() {
                         latestRecord.predictions[0]?.disease ||
                         'Retake photo')}
                   </p>
+                  <div className="mt-2">
+                    <DiseaseExplanation
+                      className={latestRecord.predictions[0]?.className}
+                      disease={latestRecord.condition}
+                    />
+                  </div>
                   {latestRecord.diagnosisReason && (
                     <p className="mt-2 text-sm font-medium opacity-90">
                       {friendlyReasonLabel(latestRecord)}:{' '}
@@ -1169,6 +1271,41 @@ function ScanPage() {
                   )}
                 </div>
               </div>
+
+              {(() => {
+                const predictedCrop =
+                  latestRecord.predictions?.[0]?.crop ||
+                  latestRecord.cropType ||
+                  ''
+                const selected = normalizeCropName(selectedCrop)
+                const predicted = normalizeCropName(predictedCrop)
+                if (
+                  !selected ||
+                  !predicted ||
+                  latestRecord.diagnosisState === 'out_of_scope' ||
+                  cropsMatch(selectedCrop, predictedCrop)
+                ) {
+                  return null
+                }
+                return (
+                  <div className="flex items-start gap-3 rounded-2xl border border-sun-orange/40 bg-sun-orange-soft p-4">
+                    <AlertTriangle
+                      className="mt-0.5 h-5 w-5 shrink-0 text-sun-orange"
+                      strokeWidth={2.4}
+                    />
+                    <div>
+                      <p className="text-sm font-black text-forest-900">
+                        You picked {selected}, but this looks like {predicted}.
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-forest-700">
+                        If it really is {selected.toLowerCase()}, retake the photo
+                        with one clear leaf in good light. CropScan may be unsure,
+                        or the leaf may be a crop it doesn&apos;t support yet.
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {latestRecord.predictions.length > 0 ? (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1413,9 +1550,7 @@ function ScanPage() {
                       const isAssistant = message.role === 'assistant'
                       const isFallback =
                         isAssistant &&
-                        message.content.includes(
-                          'live assistant is unavailable',
-                        )
+                        message.content.includes('chat assistant is resting')
                       return (
                         <div
                           key={`${message.role}-${index}`}

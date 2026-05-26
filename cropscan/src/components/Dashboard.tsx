@@ -24,6 +24,7 @@ import {
   updateAnalysisNotes,
 } from '../lib/storage'
 import type { AnalysisRecord } from '../types'
+import DiseaseExplanation from './DiseaseExplanation'
 
 function formatTimeAgo(value: string) {
   const diffMs = Date.now() - new Date(value).getTime()
@@ -368,6 +369,12 @@ function Dashboard() {
                     <p className="mt-2 text-sm font-medium text-muted">
                       Scanned {formatTimeAgo(record.createdAt)} · {record.fileName}
                     </p>
+                    <div className="mt-2">
+                      <DiseaseExplanation
+                        className={record.predictions[0]?.className}
+                        disease={record.condition}
+                      />
+                    </div>
                   </div>
                   <span
                     className={`inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wide ring-1 ${statusToneClass(

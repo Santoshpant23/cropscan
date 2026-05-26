@@ -80,14 +80,15 @@ function TopBar({ onOpenGuide }: Props) {
               <HelpCircle size={22} strokeWidth={2} />
             </button>
           ) : null}
-          {isAuthenticated && !isHome ? (
+          {isAuthenticated ? (
             <button
               type="button"
               onClick={logout}
-              className="crop-touch flex items-center justify-center rounded-md text-muted transition hover:text-forest-700"
+              className="crop-touch flex items-center gap-1 rounded-md px-2 text-xs font-bold text-muted transition hover:text-forest-700"
               aria-label="Sign out"
             >
               <LogOut size={20} strokeWidth={2} />
+              <span>Sign out</span>
             </button>
           ) : null}
           {!isAuthenticated && location.pathname !== '/login' ? (

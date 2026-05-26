@@ -9,6 +9,7 @@ import {
   Save,
   Shield,
   Trash2,
+  Type,
   User,
   UserCog,
 } from 'lucide-react'
@@ -16,6 +17,12 @@ import { useAuth } from '../context/useAuth'
 import { getFormValue } from '../lib/forms'
 import { getInitials } from '../lib/format'
 import { AUTH_TOKEN_KEY, AUTH_USER_KEY } from '../lib/storage'
+import {
+  TEXT_SCALE_OPTIONS,
+  getSavedTextScaleId,
+  setTextScale,
+  type TextScaleId,
+} from '../lib/textScale'
 import type { UserProfile } from '../types'
 
 function Profile() {
@@ -24,6 +31,9 @@ function Profile() {
   const [savedMessage, setSavedMessage] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [textScaleId, setTextScaleId] = useState<TextScaleId>(() =>
+    getSavedTextScaleId(),
+  )
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -193,6 +203,46 @@ function Profile() {
               {savedMessage}
             </p>
           )}
+        </section>
+
+        <hr className="my-8 border-stroke" />
+
+        <section>
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-leaf-700">
+            <Type className="h-3.5 w-3.5" strokeWidth={2.4} />
+            Display
+          </p>
+          <h2 className="font-display mt-2 text-xl font-bold tracking-tight text-forest-900">
+            Text size
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            Make all text bigger across CropScan. Your choice is saved on this
+            device.
+          </p>
+          <div
+            role="group"
+            aria-label="Text size"
+            className="mt-5 inline-flex flex-wrap gap-2 rounded-md bg-surface-2 p-1"
+          >
+            {TEXT_SCALE_OPTIONS.map((option) => {
+              const isActive = option.id === textScaleId
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => setTextScaleId(setTextScale(option.id))}
+                  className={`crop-touch inline-flex items-center justify-center rounded-md px-4 text-sm font-bold transition ${
+                    isActive
+                      ? 'bg-white text-forest-900 shadow-sm'
+                      : 'text-muted hover:text-forest-900'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
         </section>
 
         <hr className="my-8 border-stroke" />
