@@ -54,15 +54,21 @@ function getRecordImageAlt(record: AnalysisRecord) {
     : 'Uploaded image needing review'
 }
 
+function isHealthyReading(record: AnalysisRecord) {
+  return (record.condition || '').trim().toLowerCase() === 'healthy'
+}
+
 function friendlyStatus(record: AnalysisRecord) {
   if (record.diagnosisState === 'out_of_scope') return 'Needs a clearer photo'
   if (record.diagnosisState === 'uncertain_need_more_photos') return 'Try one more angle'
-  if (record.status === 'High confidence') return 'Healthy reading'
+  if (record.status === 'High confidence') {
+    return isHealthyReading(record) ? 'Healthy reading' : 'Issue detected'
+  }
   return 'Needs another look'
 }
 
 function statusToneClass(record: AnalysisRecord) {
-  if (record.status === 'High confidence') {
+  if (record.status === 'High confidence' && isHealthyReading(record)) {
     return 'bg-leaf-300/30 text-leaf-700 ring-leaf-300/40'
   }
   if (record.diagnosisState === 'out_of_scope') {

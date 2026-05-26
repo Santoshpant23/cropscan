@@ -533,6 +533,7 @@ def delete_plot(
     plot_id: str,
     current_user: dict = Depends(get_current_user),
     plots_collection: Collection = Depends(get_plots_collection_dependency),
+    scans_collection: Collection = Depends(get_scans_collection_dependency),
 ) -> None:
     result = plots_collection.delete_one(_plot_filter(plot_id, current_user))
     if result.deleted_count == 0:
@@ -540,3 +541,9 @@ def delete_plot(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plot was not found.",
         )
+    # Detach this plot's scans instead of orphaning them with a dangling
+    # plot_id/plot_name. The scans stay in history as unassigned.
+    scans_collection.update_many(
+        {"user_id": _user_id(current_user), "plot_id": plot_id},
+        {"$set": {"plot_id": None, "plot_name": None}},
+    )

@@ -139,6 +139,11 @@ def signup(
     )
 
 
+# A fixed hash used to spend the same argon2 verify time when the email does
+# not exist, so login response timing can't be used to enumerate accounts.
+_DUMMY_PASSWORD_HASH = hash_password("cropscan-timing-equalizer-not-a-real-password")
+
+
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/minute")
 def login(
@@ -147,7 +152,9 @@ def login(
     users_collection: Collection = Depends(get_users_collection_dependency),
 ) -> TokenResponse:
     user = users_collection.find_one({"email": payload.email.lower()})
-    if user is None or not verify_password(payload.password, user["password_hash"]):
+    password_hash_value = user["password_hash"] if user else _DUMMY_PASSWORD_HASH
+    password_ok = verify_password(payload.password, password_hash_value)
+    if user is None or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password.",

@@ -97,10 +97,16 @@ function nearestPlotForPosition(
   return candidates[0]?.plot
 }
 
+function isHealthyReading(record: AnalysisRecord) {
+  return (record.condition || '').trim().toLowerCase() === 'healthy'
+}
+
 function friendlyStatus(record: AnalysisRecord) {
   if (record.diagnosisState === 'out_of_scope') return 'Needs a clearer photo'
   if (record.diagnosisState === 'uncertain_need_more_photos') return 'Try one more angle'
-  if (record.status === 'High confidence') return 'Looks good'
+  if (record.status === 'High confidence') {
+    return isHealthyReading(record) ? 'Looks good' : 'Issue detected'
+  }
   return 'Needs another look'
 }
 
@@ -1121,19 +1127,22 @@ function ScanPage() {
             <div className="mt-8 space-y-5">
               <div
                 className={`flex items-start gap-4 rounded-2xl p-5 ${
-                  latestRecord.status === 'High confidence'
+                  latestRecord.status === 'High confidence' &&
+                  isHealthyReading(latestRecord)
                     ? 'bg-lime text-forest-900'
                     : 'bg-orange-200 text-orange-900'
                 }`}
               >
                 <span
                   className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${
-                    latestRecord.status === 'High confidence'
+                    latestRecord.status === 'High confidence' &&
+                    isHealthyReading(latestRecord)
                       ? 'bg-forest-900/10 text-forest-900'
                       : 'bg-orange-100 text-orange-900'
                   }`}
                 >
-                  {latestRecord.status === 'High confidence' ? (
+                  {latestRecord.status === 'High confidence' &&
+                  isHealthyReading(latestRecord) ? (
                     <CheckCircle2 className="h-6 w-6" strokeWidth={2.2} />
                   ) : (
                     <AlertTriangle className="h-6 w-6" strokeWidth={2.2} />

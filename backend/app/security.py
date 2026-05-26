@@ -105,7 +105,14 @@ def decode_access_token_payload(token: str) -> dict:
             token,
             settings.jwt_secret_key,
             algorithms=[JWT_SIGNING_ALGORITHM],
+            options={"require": ["exp"]},
         )
     except jwt.PyJWTError as exc:
         raise unauthorized from exc
+    # Access tokens never carry a "purpose" claim. Scan-result (prediction)
+    # tokens are signed with the same key but set purpose="scan_prediction";
+    # reject anything carrying a purpose so a short-lived prediction token
+    # cannot be replayed as a full session credential.
+    if payload.get("purpose") is not None:
+        raise unauthorized
     return payload
