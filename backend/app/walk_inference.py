@@ -35,6 +35,8 @@ import torch
 from PIL import Image, UnidentifiedImageError
 from torchvision import transforms
 
+from app.inference import predict_leaf_image
+
 logger = logging.getLogger(__name__)
 
 # Frame quality gates. Tuned to be permissive: we skip clearly-not-plant or
@@ -97,6 +99,9 @@ class FrameResult:
     leaf_detected: bool
     leaf_confidence: float | None
     leaf_label: str | None
+    disease_name: str | None = None
+    disease_confidence: float | None = None
+    disease_confidence_percent: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +206,11 @@ def _decode_data_url(data_url: str) -> bytes:
             f"Frame is too large; keep each frame under {MAX_FRAME_BYTES} bytes."
         )
     return decoded
+
+
+def _diagnose_frame(data_url: str, frame_index: int) -> dict:
+    raw = _decode_data_url(data_url)
+    return predict_leaf_image(raw, f"walk-frame-{frame_index}.jpg")
 
 
 def _green_ratio(image: Image.Image) -> float:
@@ -469,6 +479,28 @@ def analyze_walk(
             status = "ok"
             level = _level_for(score or 0.0, mean_score, stdev_score)
 
+        disease_name: str | None = None
+        disease_confidence: float | None = None
+        disease_confidence_percent: float | None = None
+        if status == "ok" and level in ("medium", "high"):
+            diagnosis = _diagnose_frame(frame["dataUrl"], frame_index)
+            disease_name = (
+                diagnosis.get("diseaseFriendlyName")
+                or diagnosis.get("condition")
+            )
+            confidence_score = diagnosis.get("confidenceScore")
+            confidence_percent = diagnosis.get("confidencePercent")
+            disease_confidence = (
+                round(float(confidence_score), 4)
+                if confidence_score is not None
+                else None
+            )
+            disease_confidence_percent = (
+                round(float(confidence_percent), 2)
+                if confidence_percent is not None
+                else None
+            )
+
         frame_results.append(
             FrameResult(
                 index=frame_index,
@@ -488,6 +520,9 @@ def analyze_walk(
                     else None
                 ),
                 leaf_label=quality.leaf_label,
+                disease_name=disease_name,
+                disease_confidence=disease_confidence,
+                disease_confidence_percent=disease_confidence_percent,
             )
         )
 
@@ -526,6 +561,9 @@ def analyze_walk(
                 "leafDetected": result.leaf_detected,
                 "leafConfidence": result.leaf_confidence,
                 "leafLabel": result.leaf_label,
+                "diseaseName": result.disease_name,
+                "diseaseConfidence": result.disease_confidence,
+                "diseaseConfidencePercent": result.disease_confidence_percent,
             }
             for result in frame_results
         ],

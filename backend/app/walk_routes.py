@@ -63,6 +63,9 @@ class WalkFrameResult(BaseModel):
     leafDetected: bool = False
     leafConfidence: float | None = None
     leafLabel: str | None = None
+    diseaseName: str | None = None
+    diseaseConfidence: float | None = None
+    diseaseConfidencePercent: float | None = None
 
 
 class WalkAnalyzeResponse(BaseModel):

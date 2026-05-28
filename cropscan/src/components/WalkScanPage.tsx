@@ -798,6 +798,14 @@ function WalkScanPage() {
                           <p className="font-display mt-1 text-lg font-bold tracking-tight text-forest-900">
                             Anomaly {((frame.anomalyScore || 0) * 100).toFixed(1)}
                           </p>
+                          {frame.diseaseName ? (
+                            <p className="mt-2 text-sm font-bold leading-5 text-forest-700">
+                              {frame.diseaseName}
+                              {frame.diseaseConfidencePercent != null
+                                ? ` (${frame.diseaseConfidencePercent.toFixed(1)}%)`
+                                : ''}
+                            </p>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => handleScanFrame(frame)}

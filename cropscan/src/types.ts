@@ -318,6 +318,9 @@ export type WalkFrameResult = {
   leafDetected?: boolean
   leafConfidence?: number | null
   leafLabel?: string | null
+  diseaseName?: string | null
+  diseaseConfidence?: number | null
+  diseaseConfidencePercent?: number | null
 }
 
 export type WalkAnalyzeResponse = {
