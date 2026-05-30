@@ -8,6 +8,7 @@ import type {
   PlotRecentScansResponse,
   PlotTodayCard,
   PlotRecord,
+  ScanFeedbackRequest,
   UploadResponse,
   UserProfile,
   WalkAnalyzeRequest,
@@ -222,6 +223,30 @@ export async function updateScanNotesRequest(
     method: 'PATCH',
     token,
     body: JSON.stringify({ notes }),
+  })
+}
+
+export async function submitScanFeedbackRequest(
+  scanId: string,
+  payload: ScanFeedbackRequest,
+  token: string,
+) {
+  return requestJson<AnalysisRecord>(`/scans/${scanId}/feedback`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function markScanReviewedRequest(
+  scanId: string,
+  token: string,
+  reviewed: boolean = true,
+) {
+  return requestJson<AnalysisRecord>(`/scans/${scanId}/reviewed`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ reviewed }),
   })
 }
 

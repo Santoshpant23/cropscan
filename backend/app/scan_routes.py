@@ -1,19 +1,29 @@
-from datetime import UTC, datetime
+import base64
 import hashlib
+import logging
+import mimetypes
+import uuid
+from datetime import UTC, datetime
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
 from app.config import get_settings
 from app.database import get_scans_collection_dependency
 from app.dependencies import get_current_user
-from app.models import ScanCreate, ScanResponse, ScanUpdate
+from app.models import ScanCreate, ScanFeedback, ScanResponse, ScanUpdate
 from app.rate_limit import limiter
 from app.security import decode_prediction_token
 
 router = APIRouter(prefix="/scans", tags=["scans"])
+logger = logging.getLogger(__name__)
+
+
+class ScanReviewedUpdate(BaseModel):
+    reviewed: bool = True
 
 
 def _user_id(current_user: dict) -> str:
@@ -97,6 +107,10 @@ def _serialize_scan(scan: dict) -> ScanResponse:
         predictions=scan.get("predictions") or [],
         photoResults=scan.get("photo_results") or [],
         notes=scan.get("notes") or "",
+        accurate=scan.get("accurate"),
+        consented_for_training=bool(scan.get("consented_for_training", False)),
+        image_url=scan.get("image_url"),
+        reviewedAt=scan.get("reviewed_at"),
         createdAt=scan["created_at"],
         updatedAt=scan["updated_at"],
     )
@@ -235,6 +249,150 @@ def update_scan(
         )
 
     saved_scan = scans_collection.find_one(_scan_filter(scan_id, current_user))
+    if saved_scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan record was not found.",
+        )
+    return _serialize_scan(saved_scan)
+
+
+def _upload_misclassified_image_to_s3(scan_id: str, image_data_url: str) -> str:
+    if not image_data_url or "," not in image_data_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Saved scan image is not available for training upload.",
+        )
+
+    settings = get_settings()
+    if (
+        not settings.aws_access_key_id
+        or not settings.aws_secret_access_key
+        or not settings.aws_region
+        or not settings.s3_bucket_name
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="S3 training upload is not configured on this server.",
+        )
+
+    metadata, encoded_image = image_data_url.split(",", 1)
+    content_type = "image/jpeg"
+    if metadata.startswith("data:") and ";" in metadata:
+        content_type = metadata[5 : metadata.index(";")] or content_type
+
+    try:
+        image_bytes = base64.b64decode(encoded_image, validate=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Saved scan image could not be decoded for training upload.",
+        ) from exc
+
+    extension = mimetypes.guess_extension(content_type) or ".jpg"
+    object_key = f"misclassified/{scan_id}-{uuid.uuid4().hex}{extension}"
+
+    try:
+        import boto3
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="S3 upload dependency boto3 is not installed.",
+        ) from exc
+
+    try:
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            region_name=settings.aws_region,
+        )
+        s3_client.put_object(
+            Bucket=settings.s3_bucket_name,
+            Key=object_key,
+            Body=image_bytes,
+            ContentType=content_type,
+        )
+    except Exception as exc:
+        logger.exception("Could not upload scan image %s to S3.", scan_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not upload the scan image for training.",
+        ) from exc
+
+    return (
+        f"https://{settings.s3_bucket_name}.s3."
+        f"{settings.aws_region}.amazonaws.com/{object_key}"
+    )
+
+
+@router.patch("/{scan_id}/feedback", response_model=ScanResponse)
+@limiter.limit("30/minute")
+def submit_scan_feedback(
+    request: Request,
+    scan_id: str,
+    payload: ScanFeedback,
+    current_user: dict = Depends(get_current_user),
+    scans_collection: Collection = Depends(get_scans_collection_dependency),
+) -> ScanResponse:
+    scan_filter = _scan_filter(scan_id, current_user)
+    scan = scans_collection.find_one(scan_filter)
+    if scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan record was not found.",
+        )
+
+    if payload.accurate and payload.consented_for_training:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Training consent is only used for inaccurate diagnoses.",
+        )
+
+    updates: dict = {
+        "accurate": payload.accurate,
+        "consented_for_training": payload.consented_for_training,
+        "updated_at": datetime.now(UTC),
+    }
+    if payload.consented_for_training:
+        updates["image_url"] = _upload_misclassified_image_to_s3(
+            scan_id,
+            scan.get("image_data_url") or "",
+        )
+
+    scans_collection.update_one(scan_filter, {"$set": updates})
+    saved_scan = scans_collection.find_one(scan_filter)
+    if saved_scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan record was not found.",
+        )
+    return _serialize_scan(saved_scan)
+
+
+@router.patch("/{scan_id}/reviewed", response_model=ScanResponse)
+@limiter.limit("60/minute")
+def mark_scan_reviewed(
+    request: Request,
+    scan_id: str,
+    payload: ScanReviewedUpdate,
+    current_user: dict = Depends(get_current_user),
+    scans_collection: Collection = Depends(get_scans_collection_dependency),
+) -> ScanResponse:
+    scan_filter = _scan_filter(scan_id, current_user)
+    now = datetime.now(UTC)
+    updates: dict = {"updated_at": now}
+    if payload.reviewed:
+        updates["reviewed_at"] = now
+    else:
+        updates["reviewed_at"] = None
+    result = scans_collection.update_one(scan_filter, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan record was not found.",
+        )
+    saved_scan = scans_collection.find_one(scan_filter)
     if saved_scan is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

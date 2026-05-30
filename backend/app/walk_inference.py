@@ -25,7 +25,7 @@ import base64
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from io import BytesIO
 
@@ -34,12 +34,27 @@ import torch
 from PIL import Image, UnidentifiedImageError
 from torchvision import transforms
 
+from app.config import get_settings
+from app.inference import predict_leaf_image
+
 logger = logging.getLogger(__name__)
 
 # Frame quality gates. Tuned to be permissive: we skip clearly-not-plant or
 # clearly-blurred frames, but otherwise let the embedding decide.
 GREEN_RATIO_MIN = 0.05
 BLUR_VARIANCE_MIN = 60.0
+YOLO_LEAF_CONFIDENCE_MIN = 0.18
+YOLO_LEAF_FALLBACK_GREEN_RATIO_MIN = 0.16
+
+YOLO_LEAF_KEYWORDS = (
+    "leaf",
+    "leaves",
+    "plant",
+    "crop",
+    "tree",
+    "flower",
+    "potted plant",
+)
 
 # DINOv2 input. The native checkpoint trains at 518x518; we downsample to 224
 # for CPU speed. timm handles position-embedding interpolation automatically.
@@ -65,18 +80,28 @@ class WalkInferenceError(ValueError):
 class FrameQuality:
     green_ratio: float
     blur_score: float
-    status: str  # "ok" | "low_plant_signal" | "too_blurry" | "decode_failed"
+    status: str  # "ok" | "low_plant_signal" | "too_blurry" | "no_leaf_detected" | "decode_failed" | "analysis_failed"
+    leaf_detected: bool = False
+    leaf_confidence: float | None = None
+    leaf_label: str | None = None
 
 
 @dataclass(frozen=True)
 class FrameResult:
     index: int
     timestamp_ms: int
-    status: str  # "calibration" | "ok" | "low_plant_signal" | "too_blurry" | "decode_failed"
+    captured_at: str | None
+    status: str  # "calibration" | "ok" | "low_plant_signal" | "too_blurry" | "no_leaf_detected" | "decode_failed" | "analysis_failed"
     anomaly_score: float | None
     level: str | None  # "low" | "medium" | "high" | None
     green_ratio: float
     blur_score: float
+    leaf_detected: bool = False
+    leaf_confidence: float | None = None
+    leaf_label: str | None = None
+    disease_name: str | None = None
+    disease_confidence: float | None = None
+    disease_confidence_percent: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +117,11 @@ def warmup_walk_model() -> dict:
     started_at = time.perf_counter()
     cold_start = _walk_bundle.cache_info().currsize == 0
     _walk_bundle()
+    if get_settings().walk_leaf_yolo_enabled:
+        try:
+            _leaf_yolo_model()
+        except Exception:
+            logger.exception("Walk Scan YOLO warmup failed.")
     return {
         "ready": True,
         "coldStart": cold_start,
@@ -136,6 +166,28 @@ def _walk_bundle() -> dict:
     )
 
     return {"model": model, "device": device, "transform": transform}
+
+
+@lru_cache
+def _leaf_yolo_model():
+    """Load a YOLO model for leaf/plant gating before DINO scoring.
+
+    Opt-in via WALK_LEAF_YOLO_ENABLED. Set WALK_LEAF_YOLO_MODEL to a custom
+    leaf-trained ultralytics weight file when available. Generic COCO YOLO
+    weights do not include a true leaf class, so the quality gate below keeps
+    a green-signal fallback for close-up leaves.
+    """
+
+    try:
+        from ultralytics import YOLO
+    except ImportError as exc:  # pragma: no cover - exercised at runtime only
+        raise RuntimeError(
+            "ultralytics is required for Walk Scan leaf filtering. "
+            "Install it with `pip install ultralytics`."
+        ) from exc
+
+    model_path = get_settings().walk_leaf_yolo_model or "yolo11n.pt"
+    return YOLO(model_path)
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +251,76 @@ def _quality_gate(image: Image.Image) -> FrameQuality:
     return FrameQuality(green_ratio=green, blur_score=blur, status=status)
 
 
+def _detect_leaf_with_yolo(
+    image: Image.Image,
+) -> tuple[bool, float | None, str | None]:
+    try:
+        model = _leaf_yolo_model()
+    except Exception:
+        logger.exception("Walk Scan YOLO model could not be loaded.")
+        return False, None, None
+    try:
+        results = model.predict(
+            source=image,
+            imgsz=320,
+            conf=YOLO_LEAF_CONFIDENCE_MIN,
+            verbose=False,
+        )
+    except Exception:
+        logger.exception("Walk Scan YOLO prediction failed.")
+        return False, None, None
+
+    best_confidence: float | None = None
+    best_label: str | None = None
+
+    for result in results:
+        names = getattr(result, "names", None) or {}
+        boxes = getattr(result, "boxes", None)
+        if boxes is None:
+            continue
+        for box in boxes:
+            try:
+                class_id = int(box.cls[0])
+                label = str(names.get(class_id, class_id))
+                confidence = float(box.conf[0])
+            except (IndexError, TypeError, ValueError):
+                continue
+            if best_confidence is None or confidence > best_confidence:
+                best_confidence = confidence
+                best_label = label
+            if any(keyword in label.lower() for keyword in YOLO_LEAF_KEYWORDS):
+                return True, confidence, label
+
+    return False, best_confidence, best_label
+
+
+def _apply_leaf_gate(image: Image.Image, quality: FrameQuality) -> FrameQuality:
+    if quality.status != "ok":
+        return quality
+    if not get_settings().walk_leaf_yolo_enabled:
+        return quality
+
+    leaf_detected, leaf_confidence, leaf_label = _detect_leaf_with_yolo(image)
+    if leaf_detected or quality.green_ratio >= YOLO_LEAF_FALLBACK_GREEN_RATIO_MIN:
+        return FrameQuality(
+            green_ratio=quality.green_ratio,
+            blur_score=quality.blur_score,
+            status="ok",
+            leaf_detected=True,
+            leaf_confidence=leaf_confidence,
+            leaf_label=leaf_label,
+        )
+
+    return FrameQuality(
+        green_ratio=quality.green_ratio,
+        blur_score=quality.blur_score,
+        status="no_leaf_detected",
+        leaf_detected=False,
+        leaf_confidence=leaf_confidence,
+        leaf_label=leaf_label,
+    )
+
+
 def _decode_frame(data_url: str) -> tuple[Image.Image | None, FrameQuality]:
     try:
         raw = _decode_data_url(data_url)
@@ -207,7 +329,20 @@ def _decode_frame(data_url: str) -> tuple[Image.Image | None, FrameQuality]:
     except (UnidentifiedImageError, OSError, WalkInferenceError):
         return None, FrameQuality(green_ratio=0.0, blur_score=0.0, status="decode_failed")
     quality = _quality_gate(image)
+    quality = _apply_leaf_gate(image, quality)
     return image, quality
+
+
+def _diagnose_frame(data_url: str, frame_index: int) -> dict:
+    try:
+        raw = _decode_data_url(data_url)
+        return predict_leaf_image(raw, f"walk-frame-{frame_index}.jpg")
+    except Exception:
+        logger.exception(
+            "Walk Scan per-frame disease detection failed for frame %s.",
+            frame_index,
+        )
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +422,19 @@ def analyze_walk(
     # that pass the gate so we can run a single batched embedding pass.
     decoded: list[tuple[dict, Image.Image | None, FrameQuality]] = []
     for frame in frames:
-        image, quality = _decode_frame(frame["dataUrl"])
+        try:
+            image, quality = _decode_frame(frame["dataUrl"])
+        except Exception:
+            logger.exception(
+                "Walk Scan frame analysis failed for frame %s.",
+                frame.get("index"),
+            )
+            image = None
+            quality = FrameQuality(
+                green_ratio=0.0,
+                blur_score=0.0,
+                status="analysis_failed",
+            )
         decoded.append((frame, image, quality))
 
     embeddable_positions: list[int] = []
@@ -346,6 +493,7 @@ def analyze_walk(
     for position, (frame, _image, quality) in enumerate(decoded):
         frame_index = int(frame["index"])
         timestamp_ms = int(frame["timestampMs"])
+        captured_at = frame.get("capturedAt")
         is_calibration = frame_index in calibration_set
         score = scores_by_position.get(position)
 
@@ -359,10 +507,30 @@ def analyze_walk(
             status = "ok"
             level = _level_for(score or 0.0, mean_score, stdev_score)
 
+        disease_name: str | None = None
+        disease_confidence: float | None = None
+        disease_confidence_percent: float | None = None
+        if status == "ok" and level in ("medium", "high"):
+            diagnosis = _diagnose_frame(frame["dataUrl"], frame_index)
+            disease_name = diagnosis.get("condition")
+            confidence_score = diagnosis.get("confidenceScore")
+            confidence_percent = diagnosis.get("confidencePercent")
+            disease_confidence = (
+                round(float(confidence_score), 4)
+                if confidence_score is not None
+                else None
+            )
+            disease_confidence_percent = (
+                round(float(confidence_percent), 2)
+                if confidence_percent is not None
+                else None
+            )
+
         frame_results.append(
             FrameResult(
                 index=frame_index,
                 timestamp_ms=timestamp_ms,
+                captured_at=str(captured_at) if captured_at else None,
                 status=status,
                 anomaly_score=(
                     round(score, 4) if score is not None and not math.isnan(score) else None
@@ -370,6 +538,16 @@ def analyze_walk(
                 level=level,
                 green_ratio=round(quality.green_ratio, 4),
                 blur_score=round(quality.blur_score, 2),
+                leaf_detected=quality.leaf_detected,
+                leaf_confidence=(
+                    round(quality.leaf_confidence, 4)
+                    if quality.leaf_confidence is not None
+                    else None
+                ),
+                leaf_label=quality.leaf_label,
+                disease_name=disease_name,
+                disease_confidence=disease_confidence,
+                disease_confidence_percent=disease_confidence_percent,
             )
         )
 
@@ -380,7 +558,14 @@ def analyze_walk(
     skipped_count = sum(
         1
         for result in frame_results
-        if result.status in ("low_plant_signal", "too_blurry", "decode_failed")
+        if result.status
+        in (
+            "low_plant_signal",
+            "too_blurry",
+            "decode_failed",
+            "no_leaf_detected",
+            "analysis_failed",
+        )
     )
     valid_count = sum(1 for result in frame_results if result.status == "ok")
     calibration_used = sum(
@@ -398,11 +583,18 @@ def analyze_walk(
             {
                 "index": result.index,
                 "timestampMs": result.timestamp_ms,
+                "capturedAt": result.captured_at,
                 "status": result.status,
                 "anomalyScore": result.anomaly_score,
                 "level": result.level,
                 "greenRatio": result.green_ratio,
                 "blurScore": result.blur_score,
+                "leafDetected": result.leaf_detected,
+                "leafConfidence": result.leaf_confidence,
+                "leafLabel": result.leaf_label,
+                "diseaseName": result.disease_name,
+                "diseaseConfidence": result.disease_confidence,
+                "diseaseConfidencePercent": result.disease_confidence_percent,
             }
             for result in frame_results
         ],

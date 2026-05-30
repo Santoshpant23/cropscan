@@ -5,6 +5,7 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronRight,
+  ClipboardCheck,
   CloudRain,
   Footprints,
   Lightbulb,
@@ -15,11 +16,18 @@ import {
   Sun,
   ThermometerSnowflake,
   ThermometerSun,
+  X,
 } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
-import { getPlotTodayRequest, getPlotsRequest } from '../lib/api'
+import {
+  getPlotTodayRequest,
+  getPlotsRequest,
+  getScansRequest,
+  markScanReviewedRequest,
+} from '../lib/api'
+import { getDiseaseInfo } from '../lib/diseaseInfo'
 import { formatTemperature, weatherLabel } from '../lib/format'
-import type { PlotRecord, PlotTodayCard } from '../types'
+import type { AnalysisRecord, PlotRecord, PlotTodayCard } from '../types'
 
 const HERO_IMAGE_URL =
   'https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=80'
@@ -128,11 +136,18 @@ function PublicHomePage() {
 
 type Risk = NonNullable<PlotTodayCard['riskLevel']>
 
-function plotStatus(card?: PlotTodayCard): {
+function plotStatus(card?: PlotTodayCard, reviewScan?: AnalysisRecord): {
   label: string
   Icon: typeof CheckCircle2
   className: string
 } {
+  if (reviewScan?.status === 'Review needed') {
+    return {
+      label: 'Review needed',
+      Icon: AlertTriangle,
+      className: 'bg-sun-orange-soft text-sun-orange ring-sun-orange/40',
+    }
+  }
   const risk: Risk = card?.riskLevel ?? 'low'
   if (risk === 'high') {
     return {
@@ -143,7 +158,7 @@ function plotStatus(card?: PlotTodayCard): {
   }
   if (risk === 'medium') {
     return {
-      label: 'Needs review',
+      label: 'Watch conditions',
       Icon: AlertTriangle,
       className: 'bg-sun-orange-soft text-sun-orange ring-sun-orange/40',
     }
@@ -159,6 +174,11 @@ function GrowerHomePage() {
   const { token, user } = useAuth()
   const [plots, setPlots] = useState<PlotRecord[]>([])
   const [todayCards, setTodayCards] = useState<Record<string, PlotTodayCard>>({})
+  const [scanRecords, setScanRecords] = useState<AnalysisRecord[]>([])
+  const [selectedReviewScan, setSelectedReviewScan] = useState<AnalysisRecord | null>(
+    null,
+  )
+  const [isMarkingReviewed, setIsMarkingReviewed] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -171,7 +191,10 @@ function GrowerHomePage() {
       setIsLoading(true)
       setError('')
       try {
-        const serverPlots = await getPlotsRequest(activeToken)
+        const [serverPlots, serverScans] = await Promise.all([
+          getPlotsRequest(activeToken),
+          getScansRequest(activeToken).catch(() => [] as AnalysisRecord[]),
+        ])
         const cardEntries = await Promise.all(
           serverPlots.map(async (plot) => {
             try {
@@ -184,6 +207,7 @@ function GrowerHomePage() {
         )
         if (!isMounted) return
         setPlots(serverPlots)
+        setScanRecords(serverScans)
         setTodayCards(
           Object.fromEntries(
             cardEntries.filter((entry): entry is readonly [string, PlotTodayCard] =>
@@ -210,13 +234,56 @@ function GrowerHomePage() {
   }, [token])
 
   const tip = MONTHLY_TIPS[new Date().getMonth()]
-  const attentionCount = useMemo(
-    () =>
-      Object.values(todayCards).filter(
-        (card) => card.riskLevel === 'high' || card.riskLevel === 'medium',
-      ).length,
-    [todayCards],
-  )
+  const latestReviewScanByPlot = useMemo(() => {
+    const next: Record<string, AnalysisRecord> = {}
+    scanRecords.forEach((record) => {
+      if (!record.plotId || record.status !== 'Review needed' || record.reviewedAt) {
+        return
+      }
+      const existingRecord = next[record.plotId]
+      if (
+        !existingRecord ||
+        new Date(record.createdAt).getTime() >
+          new Date(existingRecord.createdAt).getTime()
+      ) {
+        next[record.plotId] = record
+      }
+    })
+    return next
+  }, [scanRecords])
+  const attentionCount = useMemo(() => {
+    const plotIds = new Set<string>()
+    Object.entries(todayCards).forEach(([plotId, card]) => {
+      if (card.riskLevel === 'high' || card.riskLevel === 'medium') {
+        plotIds.add(plotId)
+      }
+    })
+    Object.keys(latestReviewScanByPlot).forEach((plotId) => plotIds.add(plotId))
+    return plotIds.size
+  }, [latestReviewScanByPlot, todayCards])
+
+  async function handleMarkReviewed(scanId: string) {
+    if (!token) return
+    setIsMarkingReviewed(true)
+    setError('')
+    try {
+      const updatedRecord = await markScanReviewedRequest(scanId, token)
+      setScanRecords((currentRecords) =>
+        currentRecords.map((record) =>
+          record.id === updatedRecord.id ? updatedRecord : record,
+        ),
+      )
+      setSelectedReviewScan(null)
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Could not mark this scan as reviewed.',
+      )
+    } finally {
+      setIsMarkingReviewed(false)
+    }
+  }
   const conditionsCopy =
     plots.length === 0
       ? 'Start by adding your first growing spot.'
@@ -282,6 +349,8 @@ function GrowerHomePage() {
               key={plot.id}
               plot={plot}
               card={todayCards[plot.id]}
+              reviewScan={latestReviewScanByPlot[plot.id]}
+              onOpenReview={setSelectedReviewScan}
               index={index}
             />
           ))
@@ -299,6 +368,14 @@ function GrowerHomePage() {
         </div>
         <p className="mt-3 text-sm leading-6 text-muted">{tip}</p>
       </div>
+      {selectedReviewScan ? (
+        <ReviewNeededModal
+          record={selectedReviewScan}
+          isSaving={isMarkingReviewed}
+          onClose={() => setSelectedReviewScan(null)}
+          onMarkReviewed={() => void handleMarkReviewed(selectedReviewScan.id)}
+        />
+      ) : null}
     </section>
   )
 }
@@ -333,14 +410,19 @@ function QuickAction({
 function PlotCard({
   plot,
   card,
+  reviewScan,
+  onOpenReview,
   index,
 }: {
   plot: PlotRecord
   card?: PlotTodayCard
+  reviewScan?: AnalysisRecord
+  onOpenReview: (record: AnalysisRecord) => void
   index: number
 }) {
-  const status = plotStatus(card)
+  const status = plotStatus(card, reviewScan)
   const StatusIcon = status.Icon
+  const isReviewClickable = reviewScan?.status === 'Review needed'
   const tempLow = formatTemperature(card?.signals.tonightLowF)
   const isFrostRisk =
     card?.signals.tonightLowF !== undefined &&
@@ -353,7 +435,10 @@ function PlotCard({
   return (
     <Link
       to={`/plots/${plot.id}`}
-      className="crop-fade-up block rounded-lg border border-stroke bg-surface p-4 transition hover:shadow-sm"
+      className={[
+        'crop-fade-up block rounded-lg border border-stroke bg-surface p-4 transition hover:shadow-sm',
+        isReviewClickable ? 'ring-1 ring-sun-orange/30' : '',
+      ].join(' ')}
       style={{ animationDelay: `${index * 60}ms` }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -365,12 +450,27 @@ function PlotCard({
             {plot.name}
           </h3>
         </div>
-        <span
-          className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ring-1 ${status.className}`}
-        >
-          <StatusIcon className="h-3 w-3" strokeWidth={2.5} />
-          {status.label}
-        </span>
+        {isReviewClickable && reviewScan ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onOpenReview(reviewScan)
+            }}
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ring-1 transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-sun-orange/60 ${status.className}`}
+          >
+            <StatusIcon className="h-3 w-3" strokeWidth={2.5} />
+            {status.label}
+          </button>
+        ) : (
+          <span
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ring-1 ${status.className}`}
+          >
+            <StatusIcon className="h-3 w-3" strokeWidth={2.5} />
+            {status.label}
+          </span>
+        )}
       </div>
       <p className="mt-3 text-sm leading-6 text-muted line-clamp-2">
         {card?.headline ?? 'Tap for the latest scouting prompt.'}
@@ -414,6 +514,190 @@ function PlotCard({
         <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
       </span>
     </Link>
+  )
+}
+
+function reviewReasons(record: AnalysisRecord) {
+  const reasons = new Set<string>()
+  const confidence =
+    record.confidencePercent ?? record.predictions[0]?.confidence
+  const diseaseName = record.condition || record.predictions[0]?.disease
+
+  if (record.diagnosisReason) reasons.add(record.diagnosisReason)
+  if (record.diagnosisState === 'uncertain_need_more_photos') {
+    reasons.add(
+      'The scan needs another photo angle before the diagnosis is reliable.',
+    )
+  }
+  if (typeof confidence === 'number' && confidence < 85) {
+    reasons.add(
+      `Model confidence is ${Math.round(confidence)}%, below the review threshold.`,
+    )
+  }
+  if (diseaseName && !/healthy/i.test(diseaseName)) {
+    reasons.add(`${diseaseName} was found in the scan result.`)
+  }
+  if (reasons.size === 0) {
+    reasons.add('CropScan flagged this saved scan for manual review.')
+  }
+  return Array.from(reasons)
+}
+
+function urgencyClass(urgency?: string) {
+  if (urgency === 'high') return 'bg-red-50 text-danger ring-red-200'
+  if (urgency === 'low') return 'bg-leaf-300/30 text-leaf-700 ring-leaf-300/50'
+  return 'bg-sun-orange-soft text-sun-orange ring-sun-orange/40'
+}
+
+function ReviewNeededModal({
+  record,
+  isSaving,
+  onClose,
+  onMarkReviewed,
+}: {
+  record: AnalysisRecord
+  isSaving: boolean
+  onClose: () => void
+  onMarkReviewed: () => void
+}) {
+  const primaryPrediction = record.predictions[0]
+  const diseaseInfo = getDiseaseInfo(
+    primaryPrediction?.className,
+    record.condition || primaryPrediction?.disease,
+  )
+  const friendlyName =
+    diseaseInfo?.label ||
+    record.condition ||
+    primaryPrediction?.disease ||
+    'Needs review'
+  const scientificName = diseaseInfo?.scientificName
+  const explanation =
+    diseaseInfo?.explanation ||
+    'A close-up scan can help confirm what is going on with this leaf.'
+  const details = record.recommendationDetails
+  const steps = details?.immediateSteps?.length
+    ? details.immediateSteps
+    : record.recommendation
+      ? [record.recommendation]
+      : ['Monitor the plant and scan again if symptoms spread.']
+  const urgency = details?.urgency || 'medium'
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-forest-900/50 px-4 pb-4 pt-10 backdrop-blur-sm sm:items-center sm:justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="review-needed-title"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-stroke bg-surface p-5 shadow-xl sm:p-6"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-sun-orange">
+              Plot review
+            </p>
+            <h2
+              id="review-needed-title"
+              className="font-display mt-1 text-2xl font-bold tracking-tight text-forest-900"
+            >
+              {record.plotName || 'Saved plot'} needs review
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-surface-2 text-forest-700 transition hover:bg-canvas"
+            aria-label="Close review"
+          >
+            <X className="h-5 w-5" strokeWidth={2.5} />
+          </button>
+        </div>
+
+        <div className="mt-5 rounded-lg border border-stroke bg-canvas p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-lg font-black text-forest-900">
+                {friendlyName}
+              </h3>
+              {scientificName ? (
+                <p className="mt-1 text-sm font-semibold italic text-muted">
+                  {scientificName}
+                </p>
+              ) : null}
+              <p className="mt-3 text-sm leading-6 text-muted">{explanation}</p>
+            </div>
+            <span
+              className={`inline-flex w-fit shrink-0 rounded-full px-3 py-1 text-xs font-black uppercase ring-1 ${urgencyClass(urgency)}`}
+            >
+              {urgency} urgency
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+          <section className="rounded-lg border border-stroke bg-surface p-4">
+            <h3 className="text-xs font-black uppercase tracking-wide text-leaf-700">
+              Why review is needed
+            </h3>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
+              {reviewReasons(record).map((reason) => (
+                <li key={reason} className="flex gap-3">
+                  <AlertTriangle
+                    className="mt-0.5 h-4 w-4 shrink-0 text-sun-orange"
+                    strokeWidth={2.5}
+                  />
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="rounded-lg border border-stroke bg-surface p-4">
+            <h3 className="text-xs font-black uppercase tracking-wide text-leaf-700">
+              What to do next
+            </h3>
+            <ol className="mt-3 space-y-3 text-sm leading-6 text-muted">
+              {steps.map((step, index) => (
+                <li key={`${index}-${step}`} className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-leaf-300/30 text-xs font-black text-leaf-700">
+                    {index + 1}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </div>
+
+        {details?.followUp ? (
+          <p className="mt-4 rounded-lg bg-surface-2 px-4 py-3 text-sm font-semibold leading-6 text-forest-700">
+            {details.followUp}
+          </p>
+        ) : null}
+
+        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="crop-touch rounded-md border border-stroke bg-surface px-5 text-sm font-bold text-forest-700 transition hover:bg-surface-2"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={onMarkReviewed}
+            disabled={isSaving}
+            className="crop-touch inline-flex items-center justify-center gap-2 rounded-md bg-lime px-5 text-sm font-bold text-forest-900 shadow-sm transition hover:bg-lime-soft disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <ClipboardCheck className="h-5 w-5" strokeWidth={2.5} />
+            {isSaving ? 'Saving…' : 'Mark as Reviewed'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

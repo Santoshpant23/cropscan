@@ -197,6 +197,11 @@ class ScanUpdate(BaseModel):
     notes: str = Field(default="", max_length=2000)
 
 
+class ScanFeedback(BaseModel):
+    accurate: bool
+    consented_for_training: bool = False
+
+
 class ScanResponse(BaseModel):
     id: str
     userEmail: EmailStr
@@ -221,6 +226,10 @@ class ScanResponse(BaseModel):
     predictions: list[PersistedPrediction] = Field(default_factory=list)
     photoResults: list[dict[str, Any]] = Field(default_factory=list)
     notes: str = ""
+    accurate: bool | None = None
+    consented_for_training: bool = False
+    image_url: str | None = None
+    reviewedAt: datetime | None = None
     createdAt: datetime
     updatedAt: datetime
 

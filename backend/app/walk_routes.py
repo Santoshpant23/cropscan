@@ -42,6 +42,7 @@ MAX_DATA_URL_CHARS = 360_000
 class WalkFrame(BaseModel):
     index: int = Field(ge=0, le=200)
     timestampMs: int = Field(ge=0, le=120_000)
+    capturedAt: str | None = Field(default=None, max_length=64)
     dataUrl: str = Field(min_length=32, max_length=MAX_DATA_URL_CHARS)
 
 
@@ -53,11 +54,18 @@ class WalkAnalyzeRequest(BaseModel):
 class WalkFrameResult(BaseModel):
     index: int
     timestampMs: int
+    capturedAt: str | None = None
     status: str
     anomalyScore: float | None
     level: str | None
     greenRatio: float
     blurScore: float
+    leafDetected: bool = False
+    leafConfidence: float | None = None
+    leafLabel: str | None = None
+    diseaseName: str | None = None
+    diseaseConfidence: float | None = None
+    diseaseConfidencePercent: float | None = None
 
 
 class WalkAnalyzeResponse(BaseModel):

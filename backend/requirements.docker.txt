@@ -9,6 +9,7 @@ python-multipart==0.0.20
 pillow==11.3.0
 numpy==1.26.4
 google-genai==1.73.1
+boto3==1.35.99
 pytest==8.4.1
 httpx==0.28.1
 slowapi==0.1.9

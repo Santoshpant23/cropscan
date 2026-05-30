@@ -70,8 +70,17 @@ export type AnalysisRecord = {
   recommendation: string
   recommendationDetails?: RecommendationDetails
   notes: string
+  accurate?: boolean | null
+  consented_for_training?: boolean
+  image_url?: string | null
+  reviewedAt?: string | null
   predictions: ModelPrediction[]
   photoResults?: PhotoUploadResult[]
+}
+
+export type ScanFeedbackRequest = {
+  accurate: boolean
+  consented_for_training: boolean
 }
 
 export type AuthUserResponse = {
@@ -249,13 +258,16 @@ export type WalkFrameStatus =
   | 'ok'
   | 'low_plant_signal'
   | 'too_blurry'
+  | 'no_leaf_detected'
   | 'decode_failed'
+  | 'analysis_failed'
 
 export type WalkFrameLevel = 'low' | 'medium' | 'high'
 
 export type WalkFrameInput = {
   index: number
   timestampMs: number
+  capturedAt?: string
   dataUrl: string
 }
 
@@ -267,11 +279,18 @@ export type WalkAnalyzeRequest = {
 export type WalkFrameResult = {
   index: number
   timestampMs: number
+  capturedAt?: string | null
   status: WalkFrameStatus
   anomalyScore: number | null
   level: WalkFrameLevel | null
   greenRatio: number
   blurScore: number
+  leafDetected?: boolean
+  leafConfidence?: number | null
+  leafLabel?: string | null
+  diseaseName?: string | null
+  diseaseConfidence?: number | null
+  diseaseConfidencePercent?: number | null
 }
 
 export type WalkAnalyzeResponse = {
