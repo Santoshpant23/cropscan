@@ -25,7 +25,7 @@ import base64
 import logging
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 
@@ -70,6 +70,13 @@ LEVEL_HIGH_COEF = 1.5
 # here so the inference function can fail fast.
 MAX_FRAMES = 90
 MAX_FRAME_BYTES = 250_000
+
+# Cap the per-request cost of the per-frame disease classifier. The v5
+# DINOv2-LoRA + EfficientNetV2-S ensemble is several seconds per call on
+# CPU; running it on every medium/high frame can stretch a Walk Scan
+# response past the route timeout. We classify the top-K suspicious frames
+# by anomaly score and leave the rest as anomaly-only signals.
+MAX_PER_FRAME_DISEASE_CALLS = 6
 
 
 class WalkInferenceError(ValueError):
@@ -301,7 +308,7 @@ def _apply_leaf_gate(image: Image.Image, quality: FrameQuality) -> FrameQuality:
         return quality
 
     leaf_detected, leaf_confidence, leaf_label = _detect_leaf_with_yolo(image)
-    if leaf_detected or quality.green_ratio >= YOLO_LEAF_FALLBACK_GREEN_RATIO_MIN:
+    if leaf_detected:
         return FrameQuality(
             green_ratio=quality.green_ratio,
             blur_score=quality.blur_score,
@@ -309,6 +316,17 @@ def _apply_leaf_gate(image: Image.Image, quality: FrameQuality) -> FrameQuality:
             leaf_detected=True,
             leaf_confidence=leaf_confidence,
             leaf_label=leaf_label,
+        )
+    if quality.green_ratio >= YOLO_LEAF_FALLBACK_GREEN_RATIO_MIN:
+        # Fallback admit on green signal; don't claim a YOLO leaf match here.
+        # The non-matching best-box label/confidence would be misleading.
+        return FrameQuality(
+            green_ratio=quality.green_ratio,
+            blur_score=quality.blur_score,
+            status="ok",
+            leaf_detected=False,
+            leaf_confidence=None,
+            leaf_label=None,
         )
 
     return FrameQuality(
@@ -333,10 +351,9 @@ def _decode_frame(data_url: str) -> tuple[Image.Image | None, FrameQuality]:
     return image, quality
 
 
-def _diagnose_frame(data_url: str, frame_index: int) -> dict:
+def _diagnose_frame(raw_bytes: bytes, frame_index: int) -> dict:
     try:
-        raw = _decode_data_url(data_url)
-        return predict_leaf_image(raw, f"walk-frame-{frame_index}.jpg")
+        return predict_leaf_image(raw_bytes, f"walk-frame-{frame_index}.jpg")
     except Exception:
         logger.exception(
             "Walk Scan per-frame disease detection failed for frame %s.",
@@ -420,16 +437,39 @@ def analyze_walk(
 
     # Decode + quality gate, in order. Keep decoded images only for frames
     # that pass the gate so we can run a single batched embedding pass.
+    # Also cache raw bytes for the per-frame disease classifier below so
+    # we don't re-decode base64 + PIL on every medium/high anomaly frame.
     decoded: list[tuple[dict, Image.Image | None, FrameQuality]] = []
-    for frame in frames:
+    raw_bytes_by_position: dict[int, bytes] = {}
+    for position, frame in enumerate(frames):
+        image: Image.Image | None = None
+        quality: FrameQuality
         try:
-            image, quality = _decode_frame(frame["dataUrl"])
+            raw = _decode_data_url(frame["dataUrl"])
+            try:
+                image = Image.open(BytesIO(raw)).convert("RGB")
+                image.load()
+                quality = _quality_gate(image)
+                quality = _apply_leaf_gate(image, quality)
+                raw_bytes_by_position[position] = raw
+            except (UnidentifiedImageError, OSError):
+                image = None
+                quality = FrameQuality(
+                    green_ratio=0.0,
+                    blur_score=0.0,
+                    status="decode_failed",
+                )
+        except WalkInferenceError:
+            quality = FrameQuality(
+                green_ratio=0.0,
+                blur_score=0.0,
+                status="decode_failed",
+            )
         except Exception:
             logger.exception(
                 "Walk Scan frame analysis failed for frame %s.",
                 frame.get("index"),
             )
-            image = None
             quality = FrameQuality(
                 green_ratio=0.0,
                 blur_score=0.0,
@@ -489,53 +529,82 @@ def analyze_walk(
         mean_score = 0.0
         stdev_score = 0.0
 
-    frame_results: list[FrameResult] = []
+    # Pass 1: assign status / level for every frame so we can pick the top-K
+    # suspicious frames to actually run the disease classifier on.
+    interim_results: list[tuple[dict, FrameQuality, str, str | None, float | None]] = []
     for position, (frame, _image, quality) in enumerate(decoded):
         frame_index = int(frame["index"])
-        timestamp_ms = int(frame["timestampMs"])
-        captured_at = frame.get("capturedAt")
         is_calibration = frame_index in calibration_set
         score = scores_by_position.get(position)
 
         if quality.status != "ok":
-            status = quality.status
-            level = None
+            interim_status = quality.status
+            interim_level = None
         elif is_calibration:
-            status = "calibration"
-            level = "low"
+            interim_status = "calibration"
+            interim_level = "low"
         else:
-            status = "ok"
-            level = _level_for(score or 0.0, mean_score, stdev_score)
+            interim_status = "ok"
+            interim_level = _level_for(score or 0.0, mean_score, stdev_score)
+        interim_results.append((frame, quality, interim_status, interim_level, score))
+
+    # Pick the most-suspicious frames to classify, capped so a single Walk
+    # Scan can't accumulate dozens of expensive ensemble inferences.
+    diagnoseable_positions = [
+        (position, interim_results[position][4] or 0.0)
+        for position in range(len(interim_results))
+        if interim_results[position][2] == "ok"
+        and interim_results[position][3] in ("medium", "high")
+        and position in raw_bytes_by_position
+    ]
+    diagnoseable_positions.sort(key=lambda item: item[1], reverse=True)
+    selected_for_diagnosis = {
+        position for position, _ in diagnoseable_positions[:MAX_PER_FRAME_DISEASE_CALLS]
+    }
+
+    frame_results: list[FrameResult] = []
+    for position, (frame, quality, frame_status, frame_level, score) in enumerate(
+        interim_results
+    ):
+        frame_index = int(frame["index"])
+        timestamp_ms = int(frame["timestampMs"])
+        captured_at = frame.get("capturedAt")
 
         disease_name: str | None = None
         disease_confidence: float | None = None
         disease_confidence_percent: float | None = None
-        if status == "ok" and level in ("medium", "high"):
-            diagnosis = _diagnose_frame(frame["dataUrl"], frame_index)
-            disease_name = diagnosis.get("condition")
-            confidence_score = diagnosis.get("confidenceScore")
-            confidence_percent = diagnosis.get("confidencePercent")
-            disease_confidence = (
-                round(float(confidence_score), 4)
-                if confidence_score is not None
-                else None
+        if position in selected_for_diagnosis:
+            diagnosis = _diagnose_frame(
+                raw_bytes_by_position[position], frame_index
             )
-            disease_confidence_percent = (
-                round(float(confidence_percent), 2)
-                if confidence_percent is not None
-                else None
-            )
+            # Skip out-of-scope diagnoses — predict_leaf_image returns a
+            # placeholder "Not a clear crop leaf" condition with confidence 0
+            # which would otherwise leak into the suspicious-frames UI.
+            if diagnosis.get("diagnosisState") != "out_of_scope":
+                disease_name = diagnosis.get("condition")
+                confidence_score = diagnosis.get("confidenceScore")
+                confidence_percent = diagnosis.get("confidencePercent")
+                disease_confidence = (
+                    round(float(confidence_score), 4)
+                    if confidence_score is not None
+                    else None
+                )
+                disease_confidence_percent = (
+                    round(float(confidence_percent), 2)
+                    if confidence_percent is not None
+                    else None
+                )
 
         frame_results.append(
             FrameResult(
                 index=frame_index,
                 timestamp_ms=timestamp_ms,
                 captured_at=str(captured_at) if captured_at else None,
-                status=status,
+                status=frame_status,
                 anomaly_score=(
                     round(score, 4) if score is not None and not math.isnan(score) else None
                 ),
-                level=level,
+                level=frame_level,
                 green_ratio=round(quality.green_ratio, 4),
                 blur_score=round(quality.blur_score, 2),
                 leaf_detected=quality.leaf_detected,

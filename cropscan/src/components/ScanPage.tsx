@@ -310,6 +310,17 @@ function ScanPage() {
   }, [])
 
   useEffect(() => {
+    if (!isFeedbackModalOpen) return
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !isSubmittingFeedback) {
+        setIsFeedbackModalOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isFeedbackModalOpen, isSubmittingFeedback])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
     const raw = window.sessionStorage.getItem(WALK_HANDOFF_KEY)
     if (!raw) return
@@ -778,7 +789,9 @@ function ScanPage() {
   }
 
   function handleDiagnosisInaccurate() {
-    setFeedbackChoice('inaccurate')
+    // Don't set feedbackChoice='inaccurate' yet — wait for the modal submission
+    // to succeed, so a dismissed modal doesn't leave the "No" button styled as
+    // selected while the server still has accurate=null.
     setFeedbackNotice('')
     setFeedbackError('')
     setIsFeedbackModalOpen(true)

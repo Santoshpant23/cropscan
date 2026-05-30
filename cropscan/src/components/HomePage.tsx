@@ -179,6 +179,7 @@ function GrowerHomePage() {
     null,
   )
   const [isMarkingReviewed, setIsMarkingReviewed] = useState(false)
+  const [markReviewedError, setMarkReviewedError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -193,7 +194,9 @@ function GrowerHomePage() {
       try {
         const [serverPlots, serverScans] = await Promise.all([
           getPlotsRequest(activeToken),
-          getScansRequest(activeToken).catch(() => [] as AnalysisRecord[]),
+          // Pull the max page (backend caps at 100) so older unreviewed
+          // Review-needed scans aren't hidden behind a 50-row pagination wall.
+          getScansRequest(activeToken, 100).catch(() => [] as AnalysisRecord[]),
         ])
         const cardEntries = await Promise.all(
           serverPlots.map(async (plot) => {
@@ -265,7 +268,7 @@ function GrowerHomePage() {
   async function handleMarkReviewed(scanId: string) {
     if (!token) return
     setIsMarkingReviewed(true)
-    setError('')
+    setMarkReviewedError('')
     try {
       const updatedRecord = await markScanReviewedRequest(scanId, token)
       setScanRecords((currentRecords) =>
@@ -275,7 +278,7 @@ function GrowerHomePage() {
       )
       setSelectedReviewScan(null)
     } catch (caughtError) {
-      setError(
+      setMarkReviewedError(
         caughtError instanceof Error
           ? caughtError.message
           : 'Could not mark this scan as reviewed.',
@@ -372,7 +375,11 @@ function GrowerHomePage() {
         <ReviewNeededModal
           record={selectedReviewScan}
           isSaving={isMarkingReviewed}
-          onClose={() => setSelectedReviewScan(null)}
+          error={markReviewedError}
+          onClose={() => {
+            setSelectedReviewScan(null)
+            setMarkReviewedError('')
+          }}
           onMarkReviewed={() => void handleMarkReviewed(selectedReviewScan.id)}
         />
       ) : null}
@@ -433,15 +440,19 @@ function PlotCard({
   const isHeat = card?.signals.heatStress ?? false
   const SourceIcon = isHeat ? ThermometerSun : Sun
   return (
-    <Link
-      to={`/plots/${plot.id}`}
+    <article
       className={[
-        'crop-fade-up block rounded-lg border border-stroke bg-surface p-4 transition hover:shadow-sm',
+        'crop-fade-up relative rounded-lg border border-stroke bg-surface p-4 transition hover:shadow-sm',
         isReviewClickable ? 'ring-1 ring-sun-orange/30' : '',
       ].join(' ')}
       style={{ animationDelay: `${index * 60}ms` }}
     >
-      <div className="flex items-start justify-between gap-3">
+      <Link
+        to={`/plots/${plot.id}`}
+        aria-label={`Open ${plot.name}`}
+        className="absolute inset-0 z-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-leaf-700/50"
+      />
+      <div className="pointer-events-none relative z-10 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wider text-muted">
             {plot.crop}
@@ -458,7 +469,7 @@ function PlotCard({
               event.stopPropagation()
               onOpenReview(reviewScan)
             }}
-            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ring-1 transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-sun-orange/60 ${status.className}`}
+            className={`pointer-events-auto relative z-20 inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ring-1 transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-sun-orange/60 ${status.className}`}
           >
             <StatusIcon className="h-3 w-3" strokeWidth={2.5} />
             {status.label}
@@ -472,12 +483,12 @@ function PlotCard({
           </span>
         )}
       </div>
-      <p className="mt-3 text-sm leading-6 text-muted line-clamp-2">
+      <p className="pointer-events-none relative z-10 mt-3 text-sm leading-6 text-muted line-clamp-2">
         {card?.headline ?? 'Tap for the latest scouting prompt.'}
       </p>
 
       {card ? (
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="pointer-events-none relative z-10 mt-3 grid grid-cols-3 gap-2">
           <SignalPill
             Icon={ThermometerSnowflake}
             label="Low tonight"
@@ -508,12 +519,12 @@ function PlotCard({
       ) : null}
 
       <span
-        className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-leaf-700 hover:text-forest-900"
+        className="pointer-events-none relative z-10 mt-3 inline-flex items-center gap-1 text-sm font-bold text-leaf-700"
       >
         View details
         <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
       </span>
-    </Link>
+    </article>
   )
 }
 
@@ -552,14 +563,23 @@ function urgencyClass(urgency?: string) {
 function ReviewNeededModal({
   record,
   isSaving,
+  error,
   onClose,
   onMarkReviewed,
 }: {
   record: AnalysisRecord
   isSaving: boolean
+  error: string
   onClose: () => void
   onMarkReviewed: () => void
 }) {
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !isSaving) onClose()
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isSaving, onClose])
   const primaryPrediction = record.predictions[0]
   const diseaseInfo = getDiseaseInfo(
     primaryPrediction?.className,
@@ -675,6 +695,15 @@ function ReviewNeededModal({
         {details?.followUp ? (
           <p className="mt-4 rounded-lg bg-surface-2 px-4 py-3 text-sm font-semibold leading-6 text-forest-700">
             {details.followUp}
+          </p>
+        ) : null}
+
+        {error ? (
+          <p
+            role="alert"
+            className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-danger ring-1 ring-red-200"
+          >
+            {error}
           </p>
         ) : null}
 

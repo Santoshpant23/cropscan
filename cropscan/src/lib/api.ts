@@ -191,8 +191,9 @@ export async function uploadLeafRequest(fileOrFiles: File | File[], token: strin
   return parseResponse<UploadResponse>(response)
 }
 
-export async function getScansRequest(token: string) {
-  return requestJson<AnalysisRecord[]>('/scans', {
+export async function getScansRequest(token: string, limit?: number) {
+  const query = typeof limit === 'number' ? `?limit=${limit}` : ''
+  return requestJson<AnalysisRecord[]>(`/scans${query}`, {
     method: 'GET',
     token,
   })
