@@ -805,8 +805,8 @@ function ScanPage() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-3xl px-6 pb-10 pt-4 sm:pt-6 lg:max-w-5xl lg:px-8 lg:pt-10">
-      <div className="grid gap-6 lg:grid-cols-[440px_1fr]">
+    <section className="mx-auto w-full max-w-3xl px-6 pb-10 pt-4 sm:pt-6 lg:max-w-7xl lg:px-8 lg:pt-10 xl:max-w-screen-2xl">
+      <div className="grid gap-6 lg:grid-cols-[440px_minmax(0,1fr)]">
         <div className="crop-fade-up rounded-2xl border border-stroke bg-white p-6 shadow-sm sm:p-7">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-leaf-700">

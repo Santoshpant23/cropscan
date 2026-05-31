@@ -138,6 +138,9 @@ function TopBar({ onOpenGuide }: Props) {
               <NavLink to="/plots" className={desktopLinkClass}>
                 Plots
               </NavLink>
+              <NavLink to="/supported-plants" className={desktopLinkClass}>
+                Plants
+              </NavLink>
               <NavLink to="/profile" className={desktopLinkClass}>
                 Profile
               </NavLink>
