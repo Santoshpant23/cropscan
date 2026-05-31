@@ -22,6 +22,7 @@ process lifetime via ``functools.lru_cache``.
 from __future__ import annotations
 
 import base64
+import gc
 import logging
 import math
 import time
@@ -74,9 +75,10 @@ MAX_FRAME_BYTES = 250_000
 # Cap the per-request cost of the per-frame disease classifier. The v5
 # DINOv2-LoRA + EfficientNetV2-S ensemble is several seconds per call on
 # CPU; running it on every medium/high frame can stretch a Walk Scan
-# response past the route timeout. We classify the top-K suspicious frames
-# by anomaly score and leave the rest as anomaly-only signals.
-MAX_PER_FRAME_DISEASE_CALLS = 6
+# response past the route timeout AND on the 512 MB Render free tier the
+# v5 ensemble loaded alongside the walk DINOv2 bundle gets close to OOM.
+# Keep the default low; the user can raise it once they migrate to GCP.
+MAX_PER_FRAME_DISEASE_CALLS = 2
 
 
 class WalkInferenceError(ValueError):
@@ -565,6 +567,12 @@ def analyze_walk(
     selected_for_diagnosis = {
         position for position, _ in diagnoseable_positions[:MAX_PER_FRAME_DISEASE_CALLS]
     }
+
+    # Free the walk-stage PIL images now that we know which frames need the
+    # disease ensemble. Each is a 224x224 RGB tensor that hangs around inside
+    # `decoded` otherwise, blocking GC of the embedding batch.
+    decoded = [(frame, None, quality) for frame, _image, quality in decoded]
+    gc.collect()
 
     frame_results: list[FrameResult] = []
     for position, (frame, quality, frame_status, frame_level, score) in enumerate(
