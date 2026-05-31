@@ -629,7 +629,7 @@ function ReviewNeededModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-surface-2 text-forest-700 transition hover:bg-canvas"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-surface-2 text-forest-700 transition hover:bg-canvas"
             aria-label="Close review"
           >
             <X className="h-5 w-5" strokeWidth={2.5} />

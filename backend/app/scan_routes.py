@@ -355,10 +355,18 @@ def submit_scan_feedback(
         "updated_at": datetime.now(UTC),
     }
     if payload.consented_for_training:
-        updates["image_url"] = _upload_misclassified_image_to_s3(
-            scan_id,
-            scan.get("image_data_url") or "",
-        )
+        # Idempotent: if this scan already has an uploaded training image,
+        # reuse the existing S3 object instead of allocating a new UUID key.
+        # Prevents both orphan-leak on resubmit AND races where two parallel
+        # PATCHes would each upload a fresh copy.
+        existing_image_url = scan.get("image_url")
+        if existing_image_url:
+            updates["image_url"] = existing_image_url
+        else:
+            updates["image_url"] = _upload_misclassified_image_to_s3(
+                scan_id,
+                scan.get("image_data_url") or "",
+            )
 
     scans_collection.update_one(scan_filter, {"$set": updates})
     saved_scan = scans_collection.find_one(scan_filter)

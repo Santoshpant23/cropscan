@@ -353,7 +353,11 @@ def _decode_frame(data_url: str) -> tuple[Image.Image | None, FrameQuality]:
 
 def _diagnose_frame(raw_bytes: bytes, frame_index: int) -> dict:
     try:
-        return predict_leaf_image(raw_bytes, f"walk-frame-{frame_index}.jpg")
+        return predict_leaf_image(
+            raw_bytes,
+            f"walk-frame-{frame_index}.jpg",
+            include_recommendation=False,
+        )
     except Exception:
         logger.exception(
             "Walk Scan per-frame disease detection failed for frame %s.",
@@ -575,7 +579,7 @@ def analyze_walk(
         disease_confidence_percent: float | None = None
         if position in selected_for_diagnosis:
             diagnosis = _diagnose_frame(
-                raw_bytes_by_position[position], frame_index
+                raw_bytes_by_position.pop(position), frame_index
             )
             # Skip out-of-scope diagnoses — predict_leaf_image returns a
             # placeholder "Not a clear crop leaf" condition with confidence 0

@@ -594,7 +594,12 @@ def _out_of_scope_response(filename: str, image: Image.Image, leaf_validation: d
     }
 
 
-def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
+def predict_leaf_image(
+    image_bytes: bytes,
+    filename: str,
+    *,
+    include_recommendation: bool = True,
+) -> dict:
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     bundle = get_model_bundle()
     leaf_validation = _detect_leaf_image(bundle, image)
@@ -617,21 +622,29 @@ def predict_leaf_image(image_bytes: bytes, filename: str) -> dict:
     )
 
     best_prediction = max(predictions, key=lambda prediction: prediction["confidence"])
-    fallback_recommendation = _recommendation_for(predictions, status)
     display_crop = best_prediction["crop"]
     display_condition = best_prediction["disease"]
     if status != "High confidence":
         display_crop = display_crop if same_top_class else "Multiple possibilities"
         display_condition = "Needs clearer photo"
 
-    recommendation, recommendation_details = generate_recommendation(
-        crop=best_prediction["crop"],
-        disease=best_prediction["disease"],
-        status=status,
-        confidence_percent=best_prediction["confidencePercent"],
-        predictions=predictions,
-        fallback_recommendation=fallback_recommendation,
-    )
+    if include_recommendation:
+        fallback_recommendation = _recommendation_for(predictions, status)
+        recommendation, recommendation_details = generate_recommendation(
+            crop=best_prediction["crop"],
+            disease=best_prediction["disease"],
+            status=status,
+            confidence_percent=best_prediction["confidencePercent"],
+            predictions=predictions,
+            fallback_recommendation=fallback_recommendation,
+        )
+    else:
+        # Walk Scan per-frame disease detection only needs the label +
+        # confidence; skip the Gemini recommendation call to keep latency
+        # bounded and avoid burning quota across many frames.
+        recommendation = ""
+        recommendation_details = None
+
     return {
         "fileName": filename,
         "imageSize": {"width": image.width, "height": image.height},

@@ -785,10 +785,12 @@ function ScanPage() {
   }
 
   function handleDiagnosisAccurate() {
+    if (isSubmittingFeedback) return
     void submitFeedback(true, false)
   }
 
   function handleDiagnosisInaccurate() {
+    if (isSubmittingFeedback) return
     // Don't set feedbackChoice='inaccurate' yet — wait for the modal submission
     // to succeed, so a dismissed modal doesn't leave the "No" button styled as
     // selected while the server still has accurate=null.
@@ -798,6 +800,7 @@ function ScanPage() {
   }
 
   function handleDeclineTrainingConsent() {
+    if (isSubmittingFeedback) return
     void submitFeedback(false, false)
   }
 
