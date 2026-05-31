@@ -311,7 +311,7 @@ function ScanPage() {
 
   useEffect(() => {
     if (!isFeedbackModalOpen) return
-    function handleEscape(event: KeyboardEvent) {
+    function handleEscape(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape' && !isSubmittingFeedback) {
         setIsFeedbackModalOpen(false)
       }
