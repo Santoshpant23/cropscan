@@ -1,4 +1,4 @@
-import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -107,6 +107,28 @@ function nearestPlotForPosition(
 
 function isHealthyReading(record: AnalysisRecord) {
   return (record.condition || '').trim().toLowerCase() === 'healthy'
+}
+
+// Tiny inline-markdown renderer so Gemini's `**bold**` emphasis actually
+// renders as bold in the chat bubble instead of leaking the asterisks.
+// Only `**...**` is parsed; everything else is left as plain text. React
+// escapes child strings in JSX so no XSS surface is introduced.
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, index) => {
+    if (
+      part.length > 4 &&
+      part.startsWith('**') &&
+      part.endsWith('**')
+    ) {
+      return (
+        <strong key={index} className="font-bold">
+          {part.slice(2, -2)}
+        </strong>
+      )
+    }
+    return <span key={index}>{part}</span>
+  })
 }
 
 function friendlyStatus(record: AnalysisRecord) {
@@ -1703,7 +1725,9 @@ function ScanPage() {
                                 Local guidance
                               </span>
                             ) : null}
-                            <p className="whitespace-pre-wrap">{message.content}</p>
+                            <p className="whitespace-pre-wrap">
+                              {renderInlineMarkdown(message.content)}
+                            </p>
                           </div>
                           {!isAssistant ? (
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sun-orange text-[11px] font-black text-white">
