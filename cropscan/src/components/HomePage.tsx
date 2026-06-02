@@ -33,9 +33,9 @@ const HERO_IMAGE_URL =
   'https://images.unsplash.com/photo-1464226184884-fa280b87c399?auto=format&fit=crop&w=1200&q=80'
 
 const PUBLIC_STATS: Array<{ value: string; label: string }> = [
-  { value: '99%', label: 'Accuracy' },
-  { value: '0.5s', label: 'Scan speed' },
-  { value: '12k+', label: 'Species' },
+  { value: '75.6%', label: 'On real field photos' },
+  { value: '38', label: 'Disease classes' },
+  { value: '14', label: 'Crops' },
 ]
 
 const MONTHLY_TIPS = [
@@ -87,8 +87,8 @@ function PublicHomePage() {
                 The Agronomist&apos;s Smart Clipboard.
               </h1>
               <p className="mt-3 max-w-xl text-base leading-relaxed text-canvas/90 sm:text-lg">
-                Diagnose field health with pinpoint accuracy in seconds. Your
-                expert companion for every row.
+                Catch crop disease early, with a plain-language answer you
+                can trust, for every row you grow.
               </p>
             </div>
           </div>
@@ -110,8 +110,8 @@ function PublicHomePage() {
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted">
-            Built for outdoor use — high contrast, 56px touch targets, works
-            offline.
+            Built for outdoor use: high contrast, 56px touch targets, works
+            in any browser.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link
